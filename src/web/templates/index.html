@@ -1,0 +1,817 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>AUREXIS V2 | Tactical Command</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background-color: #0b0f19; color: #e2e8f0; font-family: 'Inter', sans-serif; }
+        .glass-panel { background: rgba(17, 24, 39, 0.7); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; }
+    </style>
+</head>
+<body class="h-screen w-screen overflow-hidden flex flex-col p-2 space-y-2">
+
+    <!-- Header -->
+    <header class="flex justify-between items-center glass-panel p-4">
+        <div>
+            <h1 class="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-emerald-400">AUREXIS V2</h1>
+            <p class="text-xs text-gray-400 tracking-widest uppercase">Global Macro Quant Engine</p>
+        </div>
+        <div class="flex items-center space-x-4">
+            <button onclick="openTelegramModal()" class="text-xs font-bold text-gray-300 bg-gray-800 hover:bg-gray-700 px-3 py-1 rounded-full border border-gray-600 transition-colors shadow-lg">
+                ⚙️ Telegram Setup
+            </button>
+            <div id="account-identity" class="text-xs font-mono text-gray-400 bg-gray-900 px-3 py-1 rounded-full border border-gray-700 shadow-inner">
+                [----] - N/A (N/A)
+            </div>
+            <div class="flex items-center space-x-2">
+                <span class="relative flex h-3 w-3">
+                  <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span class="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+                </span>
+                <span class="text-sm font-semibold text-emerald-400">SYSTEM ONLINE</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Grid -->
+    <div class="flex-1 grid grid-cols-12 gap-4">
+        
+        <!-- PANEL 1: War Room (Account Vitals) -->
+        <div class="col-span-3 glass-panel p-6 flex flex-col space-y-4">
+            <h2 class="text-lg font-bold text-gray-200 border-b border-gray-700 pb-2">WAR ROOM (Account Vitals)</h2>
+            <div class="flex flex-col space-y-4 text-lg">
+                <div class="flex justify-between">
+                    <span class="text-gray-400">Balance:</span>
+                    <span class="font-bold text-blue-300" id="acc-balance">$0.00</span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-gray-400">Equity:</span>
+                    <span class="font-bold text-blue-300" id="acc-equity">$0.00</span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-gray-400">Free Margin:</span>
+                    <span class="font-bold text-emerald-300" id="acc-margin">$0.00</span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-gray-400">Margin Level:</span>
+                    <span class="font-bold text-gray-200" id="acc-level">0.00%</span>
+                </div>
+            </div>
+            
+            <div class="mt-auto pt-4 border-t border-gray-700 flex-1 flex flex-col">
+                <div class="text-xs text-gray-400 mb-1">Live Feed</div>
+                <div id="scanning-status" class="bg-gray-900 p-2 rounded border border-gray-700 text-xs font-mono text-cyan-400 mb-2 whitespace-normal break-words">> [SCANNER ACTIVE] Connecting to MT5 live feed...</div>
+                <div id="event-log" class="bg-black p-2 rounded border border-gray-800 flex-1 overflow-y-auto max-h-64 pr-1 text-xs font-mono text-green-400" style="scrollbar-width: thin; scrollbar-color: #334155 #0f172a;">
+                    <div>> Connecting to AUREXIS EventBus...</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- PANEL 2: The Matrix (Conviction & Macro) -->
+        <div class="col-span-3 glass-panel p-6 flex flex-col space-y-6">
+            <h2 class="text-lg font-bold text-gray-200 border-b border-gray-700 pb-2 flex justify-between items-center">
+                <span>THE MATRIX</span>
+                <span id="live-scanning-indicator" class="text-xs font-mono bg-gray-800 text-gray-500 px-2 py-1 rounded transition-colors duration-200">LIVE SCANNING (1s)</span>
+            </h2>
+            
+            <div class="grid grid-cols-4 gap-2 mb-2 text-xs font-mono text-center">
+                <div class="bg-gray-800 p-2 rounded flex flex-col">
+                    <span class="text-gray-500 mb-1">GOLD</span>
+                    <span id="tele-gold" class="text-white font-bold">----.--</span>
+                </div>
+                <div class="bg-gray-800 p-2 rounded flex flex-col">
+                    <span class="text-gray-500 mb-1">SPREAD</span>
+                    <span id="tele-spread" class="text-white font-bold">--</span>
+                </div>
+                <div class="bg-gray-800 p-2 rounded flex flex-col">
+                    <span class="text-gray-500 mb-1">H1 TREND</span>
+                    <span id="tele-h1" class="text-gray-400 font-bold">--</span>
+                </div>
+                <div class="bg-gray-800 p-2 rounded flex flex-col">
+                    <span class="text-gray-500 mb-1">M15 TREND</span>
+                    <span id="tele-m15" class="text-gray-400 font-bold">--</span>
+                </div>
+            </div>
+            
+            <div class="grid grid-cols-3 gap-2 mb-4 text-xs font-mono text-center">
+                <div class="bg-gray-800 p-2 rounded flex flex-col border border-gray-700">
+                    <span class="text-gray-500 mb-1">ADX REGIME</span>
+                    <span id="matrix-adx" class="text-blue-400 font-bold">--</span>
+                </div>
+                <div class="bg-gray-800 p-2 rounded flex flex-col border border-gray-700">
+                    <span class="text-gray-500 mb-1">Z-SCORE</span>
+                    <span id="matrix-zscore" class="text-purple-400 font-bold">--</span>
+                </div>
+                <div class="bg-gray-800 p-2 rounded flex flex-col border border-gray-700">
+                    <span class="text-gray-500 mb-1">ATR (M15)</span>
+                    <span id="matrix-atr" class="text-orange-400 font-bold">--</span>
+                </div>
+            </div>
+            
+            <div class="flex flex-col items-center justify-center p-4 bg-gray-900 rounded-xl border border-gray-800">
+                <span class="text-sm text-gray-400 mb-2">Conviction Score</span>
+                <div class="text-5xl font-black" id="conviction-score">--.-</div>
+                <div class="w-full bg-gray-800 rounded-full h-2 mt-4 overflow-hidden">
+                    <div id="conviction-bar" class="bg-blue-500 h-2 rounded-full transition-all duration-300" style="width: 50%"></div>
+                </div>
+                <div class="mt-4 flex space-x-2 w-full justify-center text-xs font-mono">
+                    <div class="bg-gray-800 px-2 py-1 rounded text-gray-300">ADX: <span id="tele-adx">--</span></div>
+                    <div class="bg-gray-800 px-2 py-1 rounded text-gray-300">RSI: <span id="tele-rsi">--</span></div>
+                    <div class="bg-gray-800 px-2 py-1 rounded text-gray-300">STREAK: <span id="tele-streak">0</span></div>
+                    <div class="bg-gray-800 px-2 py-1 rounded text-gray-300">HYPER: <span id="tele-hyper">OFF</span></div>
+                </div>
+            </div>
+
+            <div class="flex-1 overflow-y-auto">
+                <h3 class="text-xs text-gray-500 uppercase tracking-widest mb-3">Macro Spies Status</h3>
+                <div id="macro-spies" class="grid grid-cols-2 gap-2 text-sm">
+                    <!-- Updated by WS -->
+                    <div class="bg-gray-800 p-2 rounded">DXY / EURUSD: <span class="font-mono text-blue-300" id="m-dxy">--</span></div>
+                    <div class="bg-gray-800 p-2 rounded">USDJPY: <span class="font-mono text-blue-300" id="m-usdjpy">--</span></div>
+                    <div class="bg-gray-800 p-2 rounded">VIX / US500: <span class="font-mono text-red-300" id="m-vix">--</span></div>
+                    <div class="bg-gray-800 p-2 rounded">XAGUSD: <span class="font-mono text-blue-300" id="m-xagusd">--</span></div>
+                    <div class="bg-gray-800 p-2 rounded">USDCNH: <span class="font-mono text-blue-300" id="m-usdcnh">--</span></div>
+                    <div class="bg-gray-800 p-2 rounded">USOIL: <span class="font-mono text-blue-300" id="m-usoil">--</span></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- PANEL 3: The Fleet -->
+        <div class="col-span-4 glass-panel p-6 flex flex-col space-y-4">
+            <h2 class="text-lg font-bold text-gray-200 border-b border-gray-700 pb-2">THE FLEET (Active Deployments)</h2>
+            <div class="flex-1 overflow-y-auto">
+                <table class="w-full text-left text-sm">
+                    <thead>
+                        <tr class="text-gray-500 uppercase">
+                            <th class="pb-2">Ticket</th>
+                            <th class="pb-2">Symbol</th>
+                            <th class="pb-2">Type</th>
+                            <th class="pb-2 text-right">Volume</th>
+                            <th class="pb-2 text-right">Profit</th>
+                        </tr>
+                    </thead>
+                    <tbody id="fleet-table" class="font-mono">
+                        <!-- Populated by WS OrderEvents -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- PANEL 4: The Arsenal -->
+        <div class="col-span-2 glass-panel p-6 flex flex-col space-y-4">
+            <h2 class="text-lg font-bold text-gray-200 border-b border-gray-700 pb-2">THE ARSENAL</h2>
+            
+            <button id="btn-auto-sniper" onclick="toggleAutoSniper()" class="w-full py-4 bg-gray-700 hover:bg-gray-600 border border-gray-500 text-gray-300 font-bold rounded-lg shadow-lg transition-all active:scale-95 text-sm mb-4">
+                [🤖 AUTO-SNIPER: OFF]
+            </button>
+
+                        <button id="btn-force-buy" class="flex flex-col items-center justify-center w-full py-4 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg shadow-lg shadow-emerald-900/50 transition-all active:scale-95">
+                <span class="text-sm">[FORCE BUY]</span>
+                <span class="text-xs text-emerald-200 mt-1 font-normal">บังคับเปิดไม้ Buy ทันที</span>
+            </button>
+                        <button id="btn-force-sell" class="flex flex-col items-center justify-center w-full py-4 bg-red-600 hover:bg-red-500 text-white font-bold rounded-lg shadow-lg shadow-red-900/50 transition-all active:scale-95">
+                <span class="text-sm">[FORCE SELL]</span>
+                <span class="text-xs text-red-200 mt-1 font-normal">บังคับเปิดไม้ Sell ทันที</span>
+            </button>
+            
+                        <button onclick="sendCommand('HARVEST_ALL')" class="flex flex-col items-center justify-center w-full py-4 mt-4 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg transition-all active:scale-95 shadow-lg shadow-blue-900/50">
+                <span class="text-sm">[HARVEST ALL]</span>
+                <span class="text-xs text-blue-200 mt-1 font-normal">ปิดทุกไม้ เก็บกาไรเข้าพอร์ิ</span>
+            </button>
+                        <button onclick="sendCommand('CHOP_50')" class="flex flex-col items-center justify-center w-full py-4 bg-orange-600 hover:bg-orange-500 text-white font-bold rounded-lg transition-all active:scale-95 shadow-lg shadow-orange-900/50">
+                <span class="text-sm">[CHOP 50%]</span>
+                <span class="text-xs text-orange-200 mt-1 font-normal">หั่นไม้ที่ขาดทุนทิ้ง 50%
+                </span>
+            </button>
+
+                        <button onclick="openEODReport()" class="flex flex-col items-center justify-center w-full py-4 mt-4 g-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-lg transition-all active:scale-95 shadow-lg shadow-indigo-900/50">
+                <span class="text-sm">[EOD QUANT REPORT]</span>
+                <span class="text-xs text-indigo-200 mt-1 font-normal">สรุปสถิติการเทรดประจำวัน</span>
+            </button>
+
+            <div class="mt-auto">
+                                <button onclick="sendCommand('PANIC_HALT')" class="flex flex-col items-center justify-center w-full py-6 bg-red-700 hover:bg-red-600 border-2 border-red-500 text-white font-black rounded-xl shadow-[0_0_20pxrgba(220,38,38,0.6)] transition-all active:scale-95 tracking-widest">
+                    <span class="text-sm">[PANIC HALT]</span>
+                    <span class="text-xs text-red-200 mt-1 font-normal tracking-normal">หยุดฉุกเฉินและปิดทุกออร์เดอร์</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- PANEL 5: Live System Logs -->
+    <div class="glass-panel p-2 flex flex-col h-40 shrink-0">
+        <h2 class="text-sm font-bold text-gray-400 mb-2 border-b border-gray-700 pb-1">LIVE SYSTEM LOGS</h2>
+        <div id="system-logs" class="flex-1 overflow-y-auto text-xs font-mono pr-2" style="scrollbar-width: thin; scrollbar-color: #334155 #0f172a;">
+            <!-- Appended via JS -->
+        </div>
+    </div>
+
+    <!-- EOD Report Modal -->
+    <div id="eod-modal" class="fixed inset-0 z-50 hidden bg-black/80 flex items-center justify-center p-4">
+        <div class="glass-panel w-full max-w-4xl max-h-full flex flex-col p-6 shadow-2xl relative">
+            <button onclick="closeEODReport()" class="absolute top-4 right-4 text-gray-400 hover:text-white">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+            </button>
+            <h2 class="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-emerald-400 mb-4 border-b border-gray-700 pb-2">EOD QUANT REPORT</h2>
+            
+            <div class="flex-1 overflow-y-auto space-y-6" style="scrollbar-width: thin; scrollbar-color: #334155 #0f172a;">
+                
+                <!-- Tuner Parameters -->
+                <div>
+                    <h3 class="text-lg font-bold text-gray-200 mb-2">Alpha Tuner Recommendations</h3>
+                    <div id="tuner-content" class="grid grid-cols-2 gap-4 text-sm font-mono text-gray-300">
+                        <!-- Populated by JS -->
+                        Loading...
+                    </div>
+                </div>
+
+                <!-- Tearsheet -->
+                <div>
+                    <h3 class="text-lg font-bold text-gray-200 mb-2">Daily Tearsheet</h3>
+                    <div id="tearsheet-content" class="bg-gray-900 p-4 rounded border border-gray-800 text-sm font-mono text-gray-300 whitespace-pre-wrap">
+                        Loading...
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // GLOBAL ERROR BOUNDARY to prevent silent failures anywhere
+        function injectFatalError(msg) {
+            console.error("UI FATAL ERROR:", msg);
+            const errorDiv = document.createElement('div');
+            errorDiv.style.cssText = "color:red; background:black; padding:20px; z-index:9999; position:absolute; top:0; left:0; right:0; bottom:0;";
+            errorDiv.innerHTML = `<h2>UI FATAL ERROR</h2><p>${msg}</p>`;
+            if (document.body) {
+                document.body.appendChild(errorDiv);
+            } else {
+                document.addEventListener('DOMContentLoaded', () => {
+                    if (document.body) document.body.appendChild(errorDiv);
+                });
+            }
+        }
+
+        window.onerror = function(message, source, lineno, colno, error) {
+            const errorMsg = error ? error.message : message;
+            injectFatalError(errorMsg);
+            return false;
+        };
+
+        window.addEventListener('unhandledrejection', function(event) {
+            const errorMsg = event.reason ? (event.reason.message || event.reason) : "Unknown Promise Rejection";
+            injectFatalError(errorMsg);
+        });
+
+        let ws;
+        let eventLog;
+
+        function connectWebSocket() {
+            let host = 'localhost:8080';
+            let protocol = 'ws:';
+            try {
+                if (typeof window !== 'undefined' && window.location) {
+                    host = window.location.host || host;
+                    protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                }
+            } catch (e) {
+                console.warn("Could not safely parse window.location", e);
+            }
+            
+            const wsUrl = protocol + '//' + host + '/ws';
+            ws = new WebSocket(wsUrl);
+            ws.onopen = () => log("EventBus Connected.");
+            ws.onclose = () => { log("EventBus Disconnected. Reconnecting in 1s..."); setTimeout(connectWebSocket, 1000); };
+            ws.onmessage = handleWebSocketMessage;
+        }
+        
+        function log(msg) {
+            let text = msg;
+            
+            // 1. Add Timestamp if not present
+            const now = new Date();
+            const timeStr = String(now.getHours()).padStart(2, '0') + ':' + 
+                            String(now.getMinutes()).padStart(2, '0') + ':' + 
+                            String(now.getSeconds()).padStart(2, '0');
+            let timestamp = `[${timeStr}]`;
+            
+            // Check if msg already starts with a timestamp [XX:XX:XX]
+            const timeMatch = msg.match(/^\[\d{2}:\d{2}:\d{2}\]/);
+            if (timeMatch) {
+                timestamp = timeMatch[0];
+                text = msg.substring(10).trim(); // Remove timestamp from text for deduplication
+            }
+
+            if (text.startsWith("SCANNING GOLD")) {
+                let statusEl = document.getElementById("scanning-status");
+                if (statusEl) statusEl.innerText = `> ${timestamp} ${text}`;
+                
+                // Parse badges
+                const match = text.match(/SCANNING GOLD ([\d\.]+) \(Spread: (\d+) pts\) \| H1:(\w+) M15:(\w+)/);
+                if (match) {
+                    document.getElementById("tele-gold").innerText = match[1];
+                    document.getElementById("tele-spread").innerText = match[2] + " pts";
+                    
+                    let h1 = match[3];
+                    let h1El = document.getElementById("tele-h1");
+                    if (h1El) {
+                        h1El.innerText = h1;
+                        h1El.className = "text-white font-bold " + (h1 === "BEARISH" ? "text-red-500" : h1 === "BULLISH" ? "text-green-500" : "text-gray-400");
+                    }
+                    
+                    let m15 = match[4];
+                    let m15El = document.getElementById("tele-m15");
+                    if (m15El) {
+                        m15El.innerText = m15;
+                        m15El.className = "text-white font-bold " + (m15 === "BEARISH" ? "text-red-500" : m15 === "BULLISH" ? "text-green-500" : "text-gray-400");
+                    }
+                }
+                
+                // Pulse Indicator
+                let indicator = document.getElementById("live-scanning-indicator");
+                if (indicator) {
+                    indicator.classList.remove("text-gray-500");
+                    indicator.classList.add("text-cyan-400", "bg-cyan-900");
+                    setTimeout(() => {
+                        indicator.classList.add("text-gray-500");
+                        indicator.classList.remove("text-cyan-400", "bg-cyan-900");
+                    }, 200);
+                }
+                
+                return;
+            }
+
+            // 2. Deduplication (Anti-Spam)
+            if (eventLog) {
+                const firstLog = eventLog.firstElementChild;
+                let isDuplicate = false;
+                
+                if (firstLog) {
+                    const firstRaw = firstLog.dataset.rawText || "";
+                    if (firstRaw === text) {
+                        isDuplicate = true;
+                    } else if (text.startsWith("SENTINEL:") && firstRaw.startsWith("SENTINEL:")) {
+                        isDuplicate = true;
+                    } else if (text.startsWith("MODIFIED SL:") && firstRaw.startsWith("MODIFIED SL:")) {
+                        const tTicket = text.match(/Ticket (\d+)/);
+                        const fTicket = firstRaw.match(/Ticket (\d+)/);
+                        if (tTicket && fTicket && tTicket[1] === fTicket[1]) {
+                            isDuplicate = true;
+                        }
+                    }
+                    
+                    if (isDuplicate) {
+                        firstLog.dataset.rawText = text;
+                        firstLog.childNodes[0].nodeValue = `> ${timestamp} ${text}`;
+                        return;
+                    }
+                }
+
+                const div = document.createElement('div');
+                div.dataset.rawText = text;
+                div.innerText = `> ${timestamp} ${text}`;
+                
+                // 3. Color Coding
+                if (text.includes("FILLED") || text.includes("ENGAGED") || (text.includes("CLOSED_SYNC") && !text.includes("$-")) || text.includes("SENTINEL")) {
+                    div.style.color = "#10b981"; // Green
+                } else if (text.includes("HOLD") || text.includes("Blocked") || text.includes("SHIELD") || text.includes("DISENGAGED")) {
+                    div.style.color = "#f59e0b"; // Yellow/Amber
+                } else if (text.includes("ERROR") || text.includes("PANIC") || text.includes("REJECTED") || (text.includes("CLOSED_SYNC") && text.includes("$-"))) {
+                    div.style.color = "#ef4444"; // Red
+                } else if (text.includes("GOLD |") || text.includes("STRUCTURAL SHIFT")) {
+                    div.style.color = "#38bdf8"; // Cyan
+                } else {
+                    div.style.color = "#94a3b8"; // Muted
+                }
+                
+                eventLog.prepend(div);
+                if (eventLog.children.length > 100) {
+                    eventLog.lastElementChild.remove();
+                }
+            }
+        }
+
+        let autoSniperEnabled = null;
+        async function toggleAutoSniper() {
+            autoSniperEnabled = !autoSniperEnabled;
+            const btn = document.getElementById('btn-auto-sniper');
+            if (btn) {
+                if (autoSniperEnabled) {
+                    btn.innerHTML = '[🤖 AUTO-SNIPER: ON]';
+                    btn.className = 'w-full py-4 bg-purple-600 hover:bg-purple-500 border border-purple-400 text-white font-bold rounded-lg shadow-lg shadow-purple-900/50 transition-all active:scale-95 text-sm mb-4';
+                    log("Auto-Sniper ENGAGED");
+                } else {
+                    btn.innerHTML = '[🤖 AUTO-SNIPER: OFF]';
+                    btn.className = 'w-full py-4 bg-gray-700 hover:bg-gray-600 border border-gray-500 text-gray-300 font-bold rounded-lg shadow-lg transition-all active:scale-95 text-sm mb-4';
+                    log("Auto-Sniper DISENGAGED");
+                }
+            }
+            await sendCommand('TOGGLE_AUTO_SNIPER');
+        }
+
+        function handleWebSocketMessage(event) {
+            try {
+                const data = JSON.parse(event.data);
+                
+                if (data.type === 'StatePack') {
+                    const state = data.state;
+                    
+                    // Auto sniper toggle update
+                    if (state.auto_sniper_enabled !== undefined && state.auto_sniper_enabled !== autoSniperEnabled) {
+                        autoSniperEnabled = state.auto_sniper_enabled;
+                        const btn = document.getElementById('btn-auto-sniper');
+                        if (btn) {
+                            if (autoSniperEnabled) {
+                                btn.innerHTML = '[🤖 AUTO-SNIPER: ON]';
+                                btn.className = 'w-full py-4 bg-purple-600 hover:bg-purple-500 border border-purple-400 text-white font-bold rounded-lg shadow-lg shadow-purple-900/50 transition-all active:scale-95 text-sm mb-4';
+                            } else {
+                                btn.innerHTML = '[🤖 AUTO-SNIPER: OFF]';
+                                btn.className = 'w-full py-4 bg-gray-700 hover:bg-gray-600 border border-gray-500 text-gray-300 font-bold rounded-lg shadow-lg transition-all active:scale-95 text-sm mb-4';
+                            }
+                        }
+                    }
+
+                    // Conviction Score
+                    if (state.conviction_score !== undefined) {
+                        const el = document.getElementById('conviction-score');
+                        const bar = document.getElementById('conviction-bar');
+                        if (el && bar) {
+                            if (state.conviction_score === "AWAITING_DATA" || state.conviction_score === null) {
+                                el.innerText = 'AWAITING_DATA';
+                                el.className = 'text-3xl font-black text-red-500';
+                                bar.style.width = '0%';
+                                bar.className = "bg-red-500 h-2 rounded-full transition-all duration-300";
+                            } else {
+                                const score = parseFloat(state.conviction_score).toFixed(1);
+                                el.innerText = score;
+                                el.className = 'text-5xl font-black text-white';
+                                bar.style.width = `${score}%`;
+                                if (score > 80) bar.className = "bg-emerald-500 h-2 rounded-full transition-all duration-300";
+                                else if (score < 20) bar.className = "bg-red-500 h-2 rounded-full transition-all duration-300";
+                                else bar.className = "bg-blue-500 h-2 rounded-full transition-all duration-300";
+                            }
+                        }
+                    }
+                    
+                    // Strategy State
+                    if (state.latest_strategy_state) {
+                        const st = state.latest_strategy_state;
+                        const adxEl = document.getElementById('matrix-adx');
+                        if (st.adx_m15 !== undefined && adxEl) {
+                            if (st.adx_m15 === "AWAITING_DATA" || st.adx_m15 === null) {
+                                adxEl.innerText = 'AWAITING_DATA';
+                                adxEl.className = 'text-yellow-400 font-bold';
+                            } else {
+                                adxEl.innerText = st.adx_m15 < 22.0 ? 'RANGE' : 'TREND';
+                                adxEl.className = 'text-blue-400 font-bold';
+                            }
+                        }
+                        const zscoreEl = document.getElementById('matrix-zscore');
+                        if (st.z_score !== undefined && zscoreEl) {
+                            if (st.z_score === "AWAITING_DATA" || st.z_score === null) {
+                                zscoreEl.innerText = 'AWAITING_DATA';
+                                zscoreEl.className = 'text-yellow-400 font-bold';
+                            } else {
+                                zscoreEl.innerText = st.z_score.toFixed(2);
+                                zscoreEl.className = 'text-purple-400 font-bold';
+                            }
+                        }
+                        const atrEl = document.getElementById('matrix-atr');
+                        if (st.atr_m15 !== undefined && atrEl) {
+                            if (st.atr_m15 === "AWAITING_DATA" || st.atr_m15 === null) {
+                                atrEl.innerText = 'AWAITING_DATA';
+                                atrEl.className = 'text-yellow-400 font-bold';
+                            } else {
+                                atrEl.innerText = st.atr_m15.toFixed(2);
+                                atrEl.className = 'text-orange-400 font-bold';
+                            }
+                        }
+                    }
+                    
+                    // Structural Trend
+                    if (state.latest_structural_trend) {
+                        const tr = state.latest_structural_trend;
+                        if (tr.m15_adx !== undefined) {
+                            const teleAdx = document.getElementById('tele-adx');
+                            const teleRsi = document.getElementById('tele-rsi');
+                            if (teleAdx) teleAdx.innerText = tr.m15_adx.toFixed(1);
+                            if (teleRsi) teleRsi.innerText = tr.m15_rsi.toFixed(1);
+                        }
+                        if (tr.hyper_conservative !== undefined) {
+                            const el = document.getElementById('tele-hyper');
+                            if (el) {
+                                el.innerText = tr.hyper_conservative ? 'ON' : 'OFF';
+                                el.className = tr.hyper_conservative ? 'text-orange-400 font-bold' : '';
+                            }
+                        }
+                    }
+                    
+                    // Signal (Loss streak)
+                    if (state.latest_signal && state.latest_signal.loss_streak !== undefined) {
+                        const teleStreak = document.getElementById('tele-streak');
+                        if (teleStreak) teleStreak.innerText = state.latest_signal.loss_streak;
+                    }
+                    
+                    // Account State (Vitals & Fleet)
+                    if (state.account_state && state.account_state.balance !== undefined) {
+                        const accData = state.account_state;
+                        const accId = document.getElementById('account-identity');
+                        if (accId && accData.login && accData.login !== 0) {
+                            accId.innerText = `[${accData.login}] - ${accData.account_name} (${accData.server})`;
+                        }
+                        
+                        const accBal = document.getElementById('acc-balance');
+                        if (accBal) accBal.innerText = `$${accData.balance.toFixed(2)}`;
+                        const accEq = document.getElementById('acc-equity');
+                        if (accEq) accEq.innerText = `$${accData.equity.toFixed(2)}`;
+                        const accMar = document.getElementById('acc-margin');
+                        if (accMar) accMar.innerText = `$${accData.free_margin.toFixed(2)}`;
+                        const accLev = document.getElementById('acc-level');
+                        if (accLev) accLev.innerText = `${accData.margin_level.toFixed(2)}%`;
+                        
+                        const tbody = document.getElementById('fleet-table');
+                        if (tbody) {
+                            tbody.innerHTML = '';
+                            if (accData.positions) {
+                                accData.positions.forEach(pos => {
+                                    const profitColor = pos.profit >= 0 ? 'text-emerald-400' : 'text-red-400';
+                                    const dirColor = pos.type === 'BUY' ? 'text-emerald-400' : 'text-red-400';
+                                    const row = `<tr id="tkt-${pos.ticket}" class="border-b border-gray-800 hover:bg-gray-800 transition-colors">
+                                        <td class="py-2 text-gray-400">#${pos.ticket}</td>
+                                        <td class="py-2 font-bold">${pos.symbol}</td>
+                                        <td class="py-2 ${dirColor}">${pos.type}</td>
+                                        <td class="py-2 text-right">${pos.volume}</td>
+                                        <td class="py-2 text-right ${profitColor}">$${pos.profit.toFixed(2)}</td>
+                                    </tr>`;
+                                    tbody.innerHTML += row;
+                                });
+                            }
+                        }
+                    }
+                    
+                    // Macro Update
+                    if (state.latest_macro) {
+                        const dxy = document.getElementById('m-dxy');
+                        if (dxy) dxy.innerText = state.latest_macro.eurusd_val.toFixed(5);
+                        const usdjpy = document.getElementById('m-usdjpy');
+                        if (usdjpy) usdjpy.innerText = state.latest_macro.usdjpy.toFixed(2);
+                        const vix = document.getElementById('m-vix');
+                        if (vix) vix.innerText = state.latest_macro.us500_val.toFixed(2);
+                        const xagusd = document.getElementById('m-xagusd');
+                        if (xagusd) xagusd.innerText = state.latest_macro.xagusd.toFixed(2);
+                        const usdcnh = document.getElementById('m-usdcnh');
+                        if (usdcnh) usdcnh.innerText = state.latest_macro.usdcnh.toFixed(2);
+                        const usoil = document.getElementById('m-usoil');
+                        if (usoil) usoil.innerText = state.latest_macro.usoil.toFixed(2);
+                    }
+
+                    // Process discrete events queue
+                    if (data.events && Array.isArray(data.events)) {
+                        for (const ev of data.events) {
+                            processDiscreteEvent(ev);
+                        }
+                    }
+                } else {
+                    processDiscreteEvent(data);
+                }
+            } catch (err) {
+                // If WS handling throws, catch it explicitly so it triggers the global handler
+                injectFatalError(err instanceof Error ? err.message : err);
+            }
+        }
+        
+        function systemLog(msg, level) {
+            const container = document.getElementById('system-logs');
+            if (!container) return;
+            const div = document.createElement('div');
+            
+            // Color based on level or content
+            if (level === 'ERROR' || level === 'CRITICAL' || msg.includes('ERROR')) {
+                div.className = 'text-red-400';
+            } else if (level === 'WARNING' || msg.includes('WARNING')) {
+                div.className = 'text-yellow-400';
+            } else if (msg.includes('SCANNING GOLD')) {
+                div.className = 'text-gray-500'; 
+            } else {
+                div.className = 'text-gray-300';
+            }
+            
+            div.innerText = msg;
+            container.appendChild(div);
+            
+            if (container.children.length > 500) {
+                container.firstElementChild.remove();
+            }
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function processDiscreteEvent(ev) {
+            if (ev.type === 'OrderEvent') {
+                if (ev.data.status !== "CLOSED_SYNC" && ev.data.direction !== "MODIFY_SL") {
+                    log(`ORDER: ${ev.data.direction} ${ev.data.symbol} - ${ev.data.status}`);
+                }
+            } else if (ev.type === 'ErrorEvent') {
+                log(`[!] ${ev.data.message}`);
+                systemLog(`[ErrorEvent] ${ev.data.message}`, 'ERROR');
+                if (ev.data.critical && document.body) {
+                    document.body.style.border = "10px solid red";
+                }
+            } else if (ev.type === 'LogEvent') {
+                if (ev.data.message.includes("SCANNING GOLD")) {
+                    log(ev.data.message);
+                } else {
+                    systemLog(ev.data.message, ev.data.level);
+                }
+            } else if (ev.type === 'SignalEvent') {
+                if (ev.data.direction !== "NEUTRAL") {
+                    log(`SIGNAL: ${ev.data.direction} ${ev.data.symbol} (Score: ${ev.data.conviction.toFixed(1)})`);
+                }
+            }
+        }
+
+        async function sendCommand(action) {
+            log(`Executing ${action}...`);
+            await fetch('/api/tactical', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({action})
+            });
+        }
+
+        async function openEODReport() {
+            const modal = document.getElementById('eod-modal');
+            if (modal) modal.classList.remove('hidden');
+            
+            try {
+                const tsRes = await fetch('/api/tearsheet');
+                const contentEl = document.getElementById('tearsheet-content');
+                if (tsRes.ok && contentEl) {
+                    const tsJson = await tsRes.json();
+                    let extraHtml = '';
+                    if (tsJson["Total Shield Blocks (Risk Rejections)"] !== undefined) {
+                        extraHtml = `<div class="mb-4 p-3 bg-emerald-900/30 border border-emerald-500/50 rounded text-emerald-400 font-bold">Capital Preservation: ${tsJson["Total Shield Blocks (Risk Rejections)"]} signals safely blocked from execution due to extreme spread/risk constraints.</div>`;
+                    }
+                    contentEl.innerHTML = extraHtml + `<div class="whitespace-pre-wrap">${tsJson.markdown || ''}</div>`;
+                } else if (contentEl) {
+                    contentEl.innerText = "EOD reports not yet generated.";
+                }
+            } catch (e) {
+                const contentEl = document.getElementById('tearsheet-content');
+                if (contentEl) contentEl.innerText = "Failed to load tearsheet.";
+            }
+
+            try {
+                const tuRes = await fetch('/api/tuner');
+                const tunerEl = document.getElementById('tuner-content');
+                if (tuRes.ok && tunerEl) {
+                    const tuJson = await tuRes.json();
+                    let html = '';
+                    for (const [key, value] of Object.entries(tuJson)) {
+                        html += `<div class="bg-gray-800 p-2 rounded">
+                            <div class="text-gray-500 text-xs uppercase">${key.replace(/_/g, ' ')}</div>
+                            <div class="font-bold text-blue-300">${typeof value === 'number' && !Number.isInteger(value) ? value.toFixed(2) : value}</div>
+                        </div>`;
+                    }
+                    tunerEl.innerHTML = html;
+                } else if (tunerEl) {
+                    tunerEl.innerHTML = "<div class='text-red-400 col-span-2'>No Alpha Tuner data found.</div>";
+                }
+            } catch (e) {
+                const tunerEl = document.getElementById('tuner-content');
+                if (tunerEl) tunerEl.innerHTML = "<div class='text-red-400 col-span-2'>Failed to load Alpha Tuner data.</div>";
+            }
+        }
+
+        function closeEODReport() {
+            const modal = document.getElementById('eod-modal');
+            if (modal) modal.classList.add('hidden');
+        }
+
+        async function dispatchCommand(action, btn) {
+            console.log(`Dispatching override command: ${action}`);
+            if (typeof log === 'function') log(`Dispatching override command: ${action}...`);
+            
+            const originalBg = btn.style.backgroundColor;
+            btn.style.backgroundColor = '#f59e0b';
+            setTimeout(() => { btn.style.backgroundColor = originalBg; }, 200);
+
+            try {
+                const res = await fetch('/api/command', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({action})
+                });
+                if (res.ok) {
+                    console.log(`Command ${action} accepted by server`);
+                } else {
+                    console.error(`Command ${action} failed`);
+                }
+            } catch (e) {
+                console.error(`Fetch error for command ${action}:`, e);
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            try {
+                eventLog = document.getElementById('event-log');
+                
+                const btnBuy = document.getElementById('btn-force-buy');
+                if (btnBuy) {
+                    btnBuy.addEventListener('click', function() {
+                        dispatchCommand('FORCE_BUY', this);
+                    });
+                }
+
+                const btnSell = document.getElementById('btn-force-sell');
+                if (btnSell) {
+                    btnSell.addEventListener('click', function() {
+                        dispatchCommand('FORCE_SELL', this);
+                    });
+                }
+                
+                connectWebSocket();
+            } catch (err) {
+                injectFatalError(err instanceof Error ? err.message : err);
+            }
+        });
+    </script>
+
+    <!-- Telegram Setup Modal -->
+    <div id="telegram-modal" class="fixed inset-0 bg-black bg-opacity-70 hidden flex items-center justify-center z-50">
+        <div class="bg-gray-900 border border-gray-700 rounded-xl p-6 w-[400px] shadow-2xl">
+            <h2 class="text-xl font-bold text-emerald-400 mb-4 border-b border-gray-700 pb-2">Telegram Setup</h2>
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm text-gray-400 mb-1">Bot Token</label>
+                    <input type="text" id="tg-bot-token" placeholder="1234567890:ABCdefGhIJKlmNoPQRstuVWxyz" class="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500">
+                </div>
+                <div>
+                    <label class="block text-sm text-gray-400 mb-1">Chat ID</label>
+                    <input type="text" id="tg-chat-id" placeholder="-1001234567890" class="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500">
+                </div>
+                <div id="tg-modal-error" class="text-red-400 text-xs hidden"></div>
+                <div class="flex space-x-3 pt-2">
+                    <button onclick="closeTelegramModal()" class="flex-1 py-2 bg-gray-700 hover:bg-gray-600 text-white font-bold rounded-lg transition-colors">Cancel</button>
+                    <button id="btn-save-tg" onclick="saveTelegramConfig()" class="flex-1 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg transition-colors shadow-lg shadow-emerald-900/50">Save & Test</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function openTelegramModal() {
+            document.getElementById('telegram-modal').classList.remove('hidden');
+            document.getElementById('tg-modal-error').classList.add('hidden');
+        }
+
+        function closeTelegramModal() {
+            document.getElementById('telegram-modal').classList.add('hidden');
+        }
+
+        async function saveTelegramConfig() {
+            const botToken = document.getElementById('tg-bot-token').value;
+            const chatId = document.getElementById('tg-chat-id').value;
+            const btn = document.getElementById('btn-save-tg');
+            const errorDiv = document.getElementById('tg-modal-error');
+            
+            if (!botToken || !chatId) {
+                errorDiv.innerText = "Please fill in both fields.";
+                errorDiv.classList.remove('hidden');
+                return;
+            }
+            
+            btn.disabled = true;
+            btn.innerText = "Testing...";
+            errorDiv.classList.add('hidden');
+            
+            try {
+                const response = await fetch('/api/telegram-config', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ bot_token: botToken, chat_id: chatId })
+                });
+                const data = await response.json();
+                if (response.ok) {
+                    closeTelegramModal();
+                    if (typeof log === 'function') log("Telegram config saved & tested successfully.");
+                } else {
+                    errorDiv.innerText = data.error || "Failed to save or send test message.";
+                    errorDiv.classList.remove('hidden');
+                }
+            } catch (err) {
+                errorDiv.innerText = err.message;
+                errorDiv.classList.remove('hidden');
+            } finally {
+                btn.disabled = false;
+                btn.innerText = "Save & Test";
+            }
+        }
+    </script>
+</body>
+</html>

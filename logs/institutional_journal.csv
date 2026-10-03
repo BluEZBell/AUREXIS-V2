@@ -1,0 +1,3 @@
+Timestamp_Open,Timestamp_Close,Cycle_ID,Direction,Total_Positions_Opened,Regime_At_Entry,Max_Conviction_Score,Total_Realized_PnL,Exit_Reason
+2026-10-03 21:31:52,2026-10-03 21:31:52,101,BUY,0,UNKNOWN,0.00,0.00,STRUCTURAL_KILL
+2026-10-03 21:34:08,2026-10-03 21:34:08,101,BUY,0,UNKNOWN,0.00,0.00,STRUCTURAL_KILL

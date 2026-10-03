@@ -1,0 +1,1 @@
+print("Legacy patch eradicated")

@@ -1,0 +1,4 @@
+Order Ticket,Direction,Entry Price,Exit Price,Conviction Score,Slippage,Tick-to-Trade Latency,Total Holding Time,Final PnL,MFE,MAE
+1,BUY,100.0,101.0,0.85,0.01,2.5,120.5,1.0,1.5,0.2
+2,SELL,105.0,106.0,0.75,0.02,3.1,80.2,-1.0,0.5,1.5
+3,BUY,200.0,205.0,0.90,0.0,1.8,300.0,5.0,6.0,0.1

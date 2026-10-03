@@ -1,0 +1,17 @@
+[Unit]
+Description=AUREXIS Trading Bot Supervisor Daemon
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+# Update this to the absolute path where the project is located on the VPS
+WorkingDirectory=/opt/AUREXISV2
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/AUREXISV2/.venv/bin/python aurexis_supervisor.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
