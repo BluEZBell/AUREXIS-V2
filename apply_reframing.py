@@ -1,1 +1,0 @@
-print("Legacy patch eradicated")
