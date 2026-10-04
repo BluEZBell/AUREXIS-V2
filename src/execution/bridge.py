@@ -35,6 +35,7 @@ def resolve_and_select_symbol(base_symbol: str) -> str:
 
     return base_symbol
 
+from src.execution.profiler import ExecutionProfiler
 class MT5Bridge:
     def __init__(self, event_bus: EventBus, risk_manager: 'Optional[RiskManager]' = None, calibrator_store=None, telemetry_logger: 'Optional[TelemetryLogger]' = None, telemetry_state=None):
         self.calibrator_store = calibrator_store
@@ -63,6 +64,7 @@ class MT5Bridge:
         self._latest_m15_atr = 0.0
         self._known_tickets = set()
         self.is_connected = True
+        self.profiler = ExecutionProfiler()
 
     async def initialize(self) -> bool:
         init_args = {}
@@ -767,6 +769,23 @@ class MT5Bridge:
                                 logger.info(f"Exact MT5 Response: {result}")
                             
                         if result and result.retcode == mt5.TRADE_RETCODE_DONE:
+                            if not getattr(config, 'DRY_RUN', False) and result:
+                                req_price = float(req_payload.get('price', 0.0))
+                                filled_price = float(getattr(result, 'price', req_price))
+                                sym = req_payload.get('symbol', '')
+                                sym_info = await asyncio.to_thread(mt5.symbol_info, sym)
+                                point = getattr(sym_info, 'point', 0.001)
+                                slippage_pts = abs(req_price - filled_price) / point if point > 0 else 0.0
+                                lat = locals().get('order_latency_ms', 0.0)
+                                asyncio.create_task(self.profiler.log_execution(
+                                    ticket=getattr(result, 'order', 0),
+                                    symbol=sym,
+                                    action=req_payload.get('type', 0),
+                                    requested_price=req_price,
+                                    filled_price=filled_price,
+                                    slippage_pts=slippage_pts,
+                                    latency_ms=lat
+                                ))
                             break
                             
                         if result and result.retcode in [mt5.TRADE_RETCODE_CONNECTION, mt5.TRADE_RETCODE_REQUOTE, mt5.TRADE_RETCODE_PRICE_CHANGED, mt5.TRADE_RETCODE_PRICE_OFF, 10004, 10008, 10009, 10020, 10015, 10016]:
@@ -923,13 +942,25 @@ class MT5Bridge:
                     def __init__(self):
                         self.order = request['position']
                         self.retcode = mt5.TRADE_RETCODE_DONE
+                        self.price = request['price']
                 logger.warning(f"DRY RUN: Bypassing close order. Mocking success for req: {request}")
-                return MockResult()
-            return mt5.order_send(request)
+                return MockResult(), 0.0
+            
+            import time
+            start = time.perf_counter()
+            res = mt5.order_send(request)
+            end = time.perf_counter()
+            return res, (end - start) * 1000.0
             
         result = None
+        latency = 0.0
         for attempt in range(3):
-            result = await run_mt5_task(_close)
+            result_tuple = await run_mt5_task(_close)
+            if isinstance(result_tuple, tuple):
+                result, latency = result_tuple
+            else:
+                result = result_tuple
+            
             if result and result.retcode in [mt5.TRADE_RETCODE_REQUOTE, mt5.TRADE_RETCODE_PRICE_OFF, mt5.TRADE_RETCODE_PRICE_CHANGED, mt5.TRADE_RETCODE_CONNECTION]:
                 if attempt < 2:
                     logger.warning(f"Close retry {attempt+1}/3 due to retcode: {result.retcode}")
@@ -938,9 +969,24 @@ class MT5Bridge:
             
         if result and result.retcode == mt5.TRADE_RETCODE_DONE:
             await self._log_and_publish(f"CLOSED_SYNC: Ticket {ticket} closed at {result.price}", "info")
-            await self.event_bus.publish(OrderEvent(ticket, "UNKNOWN", "CLOSE", result.volume, result.price, "FILLED"))
+            if not getattr(config, 'DRY_RUN', False):
+                sym_info = await asyncio.to_thread(mt5.symbol_info, pos.symbol)
+                point = getattr(sym_info, 'point', 0.001)
+                req_price = round(float(price), digits)
+                filled_price = float(getattr(result, 'price', req_price))
+                slippage_pts = abs(req_price - filled_price) / point if point > 0 else 0.0
+                asyncio.create_task(self.profiler.log_execution(
+                    ticket=ticket,
+                    symbol=pos.symbol,
+                    action=mt5.TRADE_ACTION_DEAL,
+                    requested_price=req_price,
+                    filled_price=filled_price,
+                    slippage_pts=slippage_pts,
+                    latency_ms=latency
+                ))
+            await self.event_bus.publish(OrderEvent(ticket, "UNKNOWN", "CLOSE", getattr(result, 'volume', volume), result.price, "FILLED"))
         else:
-            err = mt5.last_error()
+            err = await asyncio.to_thread(mt5.last_error)
             logger.error(f"Close failed: Error {err}")
 
     async def _modify_sl(self, symbol: str, ticket: int, new_sl: float):
@@ -976,16 +1022,39 @@ class MT5Bridge:
                     def __init__(self):
                         self.retcode = mt5.TRADE_RETCODE_DONE
                 logger.warning(f"DRY RUN: Bypassing SL modify. Mocking success for req: {request}")
-                return MockResult()
-            return mt5.order_send(request)
+                return MockResult(), 0.0
+            
+            import time
+            start = time.perf_counter()
+            res = mt5.order_send(request)
+            end = time.perf_counter()
+            return res, (end - start) * 1000.0
 
         result = None
+        latency = 0.0
         for attempt in range(5):
-            result = await run_mt5_task(lambda: _mod(new_sl))
+            result_tuple = await run_mt5_task(lambda: _mod(new_sl))
+            if result_tuple is None:
+                break
+            if isinstance(result_tuple, tuple):
+                result, latency = result_tuple
+            else:
+                result = result_tuple
+                
             if result is None:
                 break
             if result.retcode == mt5.TRADE_RETCODE_DONE:
                 await self._log_and_publish(f"MODIFIED SL: Ticket {ticket} SL moved to {new_sl}", "info")
+                if not getattr(config, 'DRY_RUN', False):
+                    asyncio.create_task(self.profiler.log_execution(
+                        ticket=ticket,
+                        symbol=symbol,
+                        action=mt5.TRADE_ACTION_SLTP,
+                        requested_price=new_sl,
+                        filled_price=new_sl,
+                        slippage_pts=0.0,
+                        latency_ms=latency
+                    ))
                 await self.event_bus.publish(OrderEvent(ticket, "UNKNOWN", "MODIFY_SL", 0.0, new_sl, "FILLED"))
                 break
             else:
