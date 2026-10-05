@@ -48,17 +48,21 @@ class Ledger:
     async def handle_order_event(self, event: OrderEvent):
         try:
             async with aiosqlite.connect(self.db_name) as db:
-                if event.status == "CLOSED_SYNC":
+                if event.status in ["CLOSED_SYNC", "CLOSED"]:
                     await db.execute(
                         "UPDATE active_trades SET status = ?, price = ? WHERE identifier = ?",
                         (event.status, event.price, event.ticket)
                     )
-                else:
+                elif event.status == "MODIFIED":
+                    await db.execute(
+                        "UPDATE active_trades SET price = ? WHERE identifier = ?",
+                        (event.price, event.ticket)
+                    )
+                elif event.status == "FILLED" and event.direction in ["BUY", "SELL"]:
                     await db.execute(
                         "INSERT OR REPLACE INTO active_trades (identifier, symbol, direction, volume, price, status) VALUES (?, ?, ?, ?, ?, ?)",
                         (event.ticket, event.symbol, event.direction, event.volume, event.price, event.status)
                     )
                 await db.commit()
-                logger.info(f"Logged order {event.ticket} in Ledger.")
         except Exception as e:
             logger.error(f"Failed to log order: {e}")

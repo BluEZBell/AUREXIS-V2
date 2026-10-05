@@ -66,19 +66,20 @@ class OrderFlowTracker:
                         is_buy_flag = (event.flags & 32) == 32
                         is_sell_flag = (event.flags & 64) == 64
                         
-                    if is_buy_flag:
+                    # Primary: Price Action Micro-Momentum
+                    mid_price = (event.ask + event.bid) / 2.0
+                    last_mid = (self._last_ask + self._last_bid) / 2.0
+                    price_delta = mid_price - last_mid
+                    
+                    if price_delta > 0.000001:
                         tick_delta = vol
-                    elif is_sell_flag:
+                    elif price_delta < -0.000001:
                         tick_delta = -vol
                     else:
-                        # Fallback to Price Action Micro-Momentum
-                        mid_price = (event.ask + event.bid) / 2.0
-                        last_mid = (self._last_ask + self._last_bid) / 2.0
-                        price_delta = mid_price - last_mid
-                        
-                        if price_delta > 0.000001:
+                        # Fallback to MT5 Flags if price didn't change
+                        if is_buy_flag and not is_sell_flag:
                             tick_delta = vol
-                        elif price_delta < -0.000001:
+                        elif is_sell_flag and not is_buy_flag:
                             tick_delta = -vol
                         
                 self._last_ask = event.ask

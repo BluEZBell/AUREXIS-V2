@@ -2,10 +2,14 @@ class DynamicParamStore:
     def __init__(self):
         pass
 
-    def get_fallback_atr(self, symbol: str) -> float:
+    async def get_fallback_atr(self, symbol: str) -> float:
         import MetaTrader5 as mt5
-        tick_info = mt5.symbol_info_tick(symbol)
-        symbol_info = mt5.symbol_info(symbol)
+        from src.core.config import run_mt5_task
+        def _get():
+            return mt5.symbol_info_tick(symbol), mt5.symbol_info(symbol)
+        res = await run_mt5_task(_get)
+        if not res: return 100.0
+        tick_info, symbol_info = res
         if tick_info and symbol_info and symbol_info.point > 0:
             spread_pts = (tick_info.ask - tick_info.bid) / symbol_info.point
             return spread_pts * 10.0

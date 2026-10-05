@@ -21,10 +21,12 @@ from src.analytics.ml_oracle import MLOracle
 
 # Orchestrator
 from src.strategy.alpha_harvester import AlphaHarvesterStrategy
+from src.core.hud import TelemetryState
+from src.core.telemetry_server import TelemetryServer
 
 logger = setup_logger("main")
 
-async def shutdown(orchestrator: AlphaHarvesterStrategy, ledger: CampaignLedger, telemetry: TelemetryLogger = None, broadcaster: TelegramBroadcaster = None, tuner=None):
+async def shutdown(orchestrator: AlphaHarvesterStrategy, ledger: CampaignLedger, telemetry: TelemetryLogger = None, broadcaster: TelegramBroadcaster = None, tuner=None, telemetry_server=None):
     logger.info("Initiating Graceful Shutdown...")
     if orchestrator:
         orchestrator.stop()
@@ -50,6 +52,8 @@ async def shutdown(orchestrator: AlphaHarvesterStrategy, ledger: CampaignLedger,
     await asyncio.gather(*tasks, return_exceptions=True)
     if telemetry:
         await telemetry.stop()
+    if telemetry_server:
+        await telemetry_server.stop()
     if broadcaster:
         await broadcaster.stop()
     logger.info("Graceful shutdown complete.")
@@ -170,20 +174,33 @@ async def main():
     oracle = MLOracle(event_bus)
     await oracle.load_model()
     
+    telemetry_state = TelemetryState()
+    
     scorer = AlphaScorer(
         radar=radar,
         oracle=oracle,
         event_bus=event_bus,
         calibrator_store=calibrator_store,
+        telemetry_state=telemetry_state,
         order_flow_tracker=order_flow
     )
     
-    sentinel = TickSentinel(event_bus, risk_manager, campaign_ledger, telemetry_logger=telemetry, alpha_scorer=scorer)
+    sentinel = TickSentinel(event_bus, risk_manager, campaign_ledger, telemetry_logger=telemetry, telemetry_state=telemetry_state, alpha_scorer=scorer)
     
     from src.core.adaptive_tuner import AdaptiveTuner
-    tuner = AdaptiveTuner(alpha_scorer=scorer, telemetry_state=None)
+    tuner = AdaptiveTuner(alpha_scorer=scorer, telemetry_state=telemetry_state)
     telemetry.register_trade_closed_callback(tuner.on_trade_closed)
     tuner.start()
+    
+    telemetry_server = TelemetryServer(
+        risk_manager=risk_manager,
+        tick_sentinel=sentinel,
+        alpha_scorer=scorer,
+        telemetry_state=telemetry_state,
+        event_bus=event_bus
+    )
+    task_ts = asyncio.create_task(telemetry_server.start())
+    bg_tasks.add(task_ts)
 
     
     orchestrator = AlphaHarvesterStrategy(
@@ -194,11 +211,12 @@ async def main():
         alpha_scorer=scorer,
         campaign_ledger=campaign_ledger
     )
+    telemetry_server.strategy = orchestrator
     
     loop = asyncio.get_running_loop()
     if sys.platform != "win32":
-        loop.add_signal_handler(signal.SIGTERM, lambda: asyncio.create_task(shutdown(orchestrator, campaign_ledger, telemetry, broadcaster, tuner)))
-        loop.add_signal_handler(signal.SIGINT, lambda: asyncio.create_task(shutdown(orchestrator, campaign_ledger, telemetry, broadcaster, tuner)))
+        loop.add_signal_handler(signal.SIGTERM, lambda: asyncio.create_task(shutdown(orchestrator, campaign_ledger, telemetry, broadcaster, tuner, telemetry_server)))
+        loop.add_signal_handler(signal.SIGINT, lambda: asyncio.create_task(shutdown(orchestrator, campaign_ledger, telemetry, broadcaster, tuner, telemetry_server)))
 
     try:
         # Start engines
@@ -237,7 +255,7 @@ async def main():
     except Exception as e:
         logger.critical(f"Orchestrator crashed: {e}", exc_info=True)
     finally:
-        await shutdown(orchestrator, campaign_ledger, telemetry, broadcaster, tuner)
+        await shutdown(orchestrator, campaign_ledger, telemetry, broadcaster, tuner, telemetry_server)
 
 if __name__ == "__main__":
     try:

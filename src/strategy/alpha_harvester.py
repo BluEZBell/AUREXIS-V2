@@ -119,6 +119,7 @@ class AlphaHarvesterStrategy:
             # Delegate all indicator fetching and evaluation to AlphaScorer
             signal = await self.alpha_scorer.evaluate_tick(symbol, bid, ask)
             self.current_score = signal.conviction_score
+            logger.info(f"DEBUG HARVESTER RECEIVED SIGNAL: dir={signal.direction}, score={signal.conviction_score}")
             
             from src.core.event_bus import StrategyStateEvent
             
@@ -157,7 +158,7 @@ class AlphaHarvesterStrategy:
                         )
                         asyncio.create_task(self.event_bus.publish(close_event))
                 
-            if signal.conviction_score >= 50.0:
+            if signal.conviction_score >= 50.0 and signal.direction != "NONE":
                 logger.info(f"AlphaHarvester Execution Trace - Received Signal Score: {signal.conviction_score:.2f} Dir: {signal.direction}")
 
             # Operation: HFT Aggression - Eradicate Conservative Hardcodes
@@ -179,27 +180,100 @@ class AlphaHarvesterStrategy:
                 )
                 
                 if lot_size > 0:
-                    logger.info(f"Risk Quota Approved: {lot_size} lots. Dispatching Free-Roll Pyramiding execution to Bridge.")
+                    logger.info(f"Risk Quota Approved: {lot_size} lots. Evaluated for Twin-Ticket split.")
                     
-                    sig_event = SignalEvent(
-                        symbol=symbol,
-                        direction=signal.direction,
-                        strategy_id=self.strategy_id,
-                        price=ask if signal.direction == "BUY" else bid,
-                        conviction=signal.conviction_score,
-                        volume=lot_size,
-                        cycle_id=int(time.time()),
-                        order_type="CORE",
-                        regime=signal.regime,
-                        mtf_volume_confirmed=signal.mtf_volume_confirmed,
-                        generation_time=time.time(),
-                        soft_sl=signal.initial_invalidation_level,
-                        soft_tp=signal.dynamic_target,
-                        atr=signal.atr,
-                        is_hyper_scale=getattr(signal, 'is_hyper_scale', False)
-                    )
-                    
-                    asyncio.create_task(self.event_bus.publish(sig_event))
+                    if True:
+                        ratio_A = 0.4 if signal.regime in ["STRONG_TREND_BULL", "STRONG_TREND_BEAR"] else 1.0 if signal.regime == "RANGE" else 0.5
+                        sym_info = mt5.symbol_info(symbol)
+                        vol_step = getattr(sym_info, 'volume_step', 0.01) if sym_info else 0.01
+                        
+                        # If lot_size is only 0.01, we cannot split it. Send it all to Harvester (Ticket A).
+                        if lot_size < 0.02:
+                            vol_A = lot_size
+                            vol_B = 0.0
+                        else:
+                            vol_A = lot_size if ratio_A == 1.0 else max(vol_step, round((lot_size * ratio_A) / vol_step) * vol_step)
+                            vol_B = 0.0 if ratio_A == 1.0 else max(0.0, round(lot_size - vol_A, 2))
+                            if vol_B > 0.0 and vol_B < vol_step:
+                                vol_B = vol_step
+                                vol_A = max(vol_step, round(lot_size - vol_B, 2))
+                        
+                        logger.info(f"Splitting {lot_size} into Ticket A (Harvester): {vol_A} and Ticket B (Runner): {vol_B}")
+                        
+                        price_entry = ask if signal.direction == "BUY" else bid
+                        
+                        point = 0.00001
+                        sym_info = mt5.symbol_info(symbol)
+                        if sym_info:
+                            point = sym_info.point
+                        
+                        # TASK 2: FRICTION-ADAPTIVE HARVESTER TARGET
+                        # Guarantee cash flow realization before 0.5 ATR Break-Even sweep, while explicitly overriding it if friction zone is too wide
+                        spread_points = (ask - bid) / point if point > 0 else 0.0
+                        minimum_friction_points = spread_points + 20.0
+                        tp_distance_points = max(signal.atr * 2.0, minimum_friction_points * 3.0)
+                        
+                        if signal.direction == "BUY":
+                            harvester_tp = price_entry + (tp_distance_points * point)
+                        else:
+                            harvester_tp = price_entry - (tp_distance_points * point)
+                        
+                        sig_event_A = SignalEvent(
+                            symbol=symbol,
+                            direction=signal.direction,
+                            strategy_id=self.strategy_id + "_HARVESTER",
+                            price=price_entry,
+                            conviction=signal.conviction_score,
+                            volume=vol_A,
+                            cycle_id=int(time.time()),
+                            order_type="CORE",
+                            regime=signal.regime,
+                            mtf_volume_confirmed=signal.mtf_volume_confirmed,
+                            generation_time=time.time(),
+                            soft_sl=signal.initial_invalidation_level,
+                            soft_tp=harvester_tp,
+                            atr=signal.atr,
+                            is_hyper_scale=getattr(signal, 'is_hyper_scale', False)
+                        )
+                        sig_event_B = SignalEvent(
+                            symbol=symbol,
+                            direction=signal.direction,
+                            strategy_id=self.strategy_id + "_RUNNER",
+                            price=price_entry,
+                            conviction=signal.conviction_score,
+                            volume=vol_B,
+                            cycle_id=int(time.time()),
+                            order_type="CORE",
+                            regime=signal.regime,
+                            mtf_volume_confirmed=signal.mtf_volume_confirmed,
+                            generation_time=time.time(),
+                            soft_sl=signal.initial_invalidation_level,
+                            soft_tp=0.0, # TASK 3: RUNNER EXHAUSTION PROTECTION (Unbounded)
+                            atr=signal.atr,
+                            is_hyper_scale=getattr(signal, 'is_hyper_scale', False)
+                        )
+                        asyncio.create_task(self.event_bus.publish(sig_event_A))
+                        if vol_B > 0.0:
+                            asyncio.create_task(self.event_bus.publish(sig_event_B))
+                    else:
+                        sig_event = SignalEvent(
+                            symbol=symbol,
+                            direction=signal.direction,
+                            strategy_id=self.strategy_id + "_HARVESTER",
+                            price=ask if signal.direction == "BUY" else bid,
+                            conviction=signal.conviction_score,
+                            volume=lot_size,
+                            cycle_id=int(time.time()),
+                            order_type="CORE",
+                            regime=signal.regime,
+                            mtf_volume_confirmed=signal.mtf_volume_confirmed,
+                            generation_time=time.time(),
+                            soft_sl=signal.initial_invalidation_level,
+                            soft_tp=signal.dynamic_target,
+                            atr=signal.atr,
+                            is_hyper_scale=getattr(signal, 'is_hyper_scale', False)
+                        )
+                        asyncio.create_task(self.event_bus.publish(sig_event))
                     
         except Exception as e:
             logger.error(f"Error in signal evaluation pipeline: {e}", exc_info=True)
@@ -288,12 +362,11 @@ class AlphaHarvesterStrategy:
                         time=tick.time,
                         bid=tick.bid,
                         ask=tick.ask,
-                        volume=float(getattr(tick, 'volume_real', getattr(tick, 'volume', 1.0))),
+                        volume=float(getattr(tick, 'volume_real', 0.0) or getattr(tick, 'volume', 0.0) or 1.0),
                         flags=getattr(tick, 'flags', 0)
                     )
                     
-                    # Concurrently broadcast tick data to both TickSentinel and AlphaScorer Pipeline
-                    asyncio.create_task(self.tick_sentinel.process_tick(tick_event))
+                    # Concurrently broadcast tick data to AlphaScorer Pipeline
                     asyncio.create_task(self.event_bus.publish(tick_event))
                     
                     if getattr(self, 'tick_vault', None):

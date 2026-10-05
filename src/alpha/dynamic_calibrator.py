@@ -4,7 +4,7 @@ import statistics
 import math
 import MetaTrader5 as mt5
 from typing import Tuple
-from src.core.config import run_mt5_task, TRADING_SYMBOL
+from src.core.config import run_mt5_task; import src.core.config as config
 
 logger = logging.getLogger("dynamic_calibrator")
 if not logger.handlers:
@@ -60,7 +60,7 @@ class DynamicCalibrator:
         # Last 24 hours of M15 = 24 * 4 = 96 bars
         # Fetch extra bars for indicator calculations
         num_bars = 150
-        rates = await run_mt5_task(mt5.copy_rates_from_pos, TRADING_SYMBOL, mt5.TIMEFRAME_M15, 0, num_bars)
+        rates = await run_mt5_task(mt5.copy_rates_from_pos, config.TRADING_SYMBOL, mt5.TIMEFRAME_M15, 0, num_bars)
         
         if rates is None or len(rates) < 100:
             logger.warning("DynamicCalibrator: Not enough M15 data to calibrate. Using fallbacks.")

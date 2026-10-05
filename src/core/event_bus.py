@@ -182,8 +182,9 @@ class WeekendBlackoutEvent:
 class EventBus:
     def __init__(self):
         self._subscribers: Dict[type, List[Callable[[Any], Awaitable[None]]]] = {}
-        self._queue: asyncio.Queue = asyncio.Queue()
+        self._queue: asyncio.Queue = asyncio.Queue(maxsize=5000)
         self._running = False
+        self._background_tasks = set()
     
     def subscribe(self, event_type: type, callback: Callable[[Any], Awaitable[None]]):
         if event_type not in self._subscribers:
@@ -192,7 +193,10 @@ class EventBus:
         logger.info(f"Subscribed {callback.__name__} to {event_type.__name__}")
         
     async def publish(self, event: Any):
-        await self._queue.put(event)
+        try:
+            await self._queue.put(event)
+        except asyncio.QueueFull:
+            logger.error(f"EventBus queue full. Dropping event: {type(event).__name__}")
         
     async def process_events(self):
         self._running = True
@@ -207,7 +211,12 @@ class EventBus:
                 
                 if event_type in self._subscribers:
                     for callback in self._subscribers[event_type]:
+                        if not asyncio.iscoroutinefunction(callback):
+                            logger.error(f"Subscriber {callback.__name__} for {event_type.__name__} is not a coroutine function.")
+                            continue
+                            
                         def _handle_task_result(t: asyncio.Task, cb_name=callback.__name__):
+                            self._background_tasks.discard(t)
                             try:
                                 exc = t.exception()
                                 if exc:
@@ -218,6 +227,7 @@ class EventBus:
                                 pass
                         
                         task = asyncio.create_task(callback(event))
+                        self._background_tasks.add(task)
                         task.add_done_callback(_handle_task_result)
                 self._queue.task_done()
             except asyncio.CancelledError:

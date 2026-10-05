@@ -139,12 +139,19 @@ class RiskManager:
             self.consecutive_losses = 0
 
     def release_quota(self, ticket: int):
+        if getattr(self, '_locked_risk_amount', None) is None:
+            self._locked_risk_amount = 0.0
+            
         if not hasattr(self, 'protected_tickets'):
             self.protected_tickets = set()
             
         if ticket not in self.protected_tickets:
             self.protected_tickets.add(ticket)
             
+            # Explicitly adjust internal state downward
+            if self._locked_risk_amount > 0:
+                self._locked_risk_amount *= 0.5 # or manage dynamically
+                
             logger.info(f"Risk Vault Recycled: Mathematical risk for ticket {ticket} instantly added back to the available daily risk pool. Free-Roll Pyramiding unlocked.")
 
     def reset_daily_state(self, current_equity: float):
@@ -197,10 +204,10 @@ class RiskManager:
         if start_equity <= 0:
             return True
 
-        # TASK 2: INSTANT FLAT BOOK
+        # TASK 1: THE 100% PROFIT SWEEP
         if self.session_start_equity > 0 and current_equity >= (self.session_start_equity * self.target_multiplier):
-            logger.info(f"MILESTONE_ACHIEVED: Equity hit target ${current_equity:.2f}! Executing FLAT BOOK and resetting session baseline.")
-            from src.core.event_bus import OrderEvent
+            logger.info(f"MILESTONE_ACHIEVED: Equity hit target ! Executing FLAT BOOK and resetting session baseline.")
+            from src.core.event_bus import OrderEvent, MilestoneEvent, CommandEvent
             asyncio.create_task(self.event_bus.publish(OrderEvent(
                 ticket=0, 
                 symbol="ALL", 
@@ -209,61 +216,46 @@ class RiskManager:
                 price=0.0, 
                 status="REQUEST"
             )))
+            asyncio.create_task(self.event_bus.publish(MilestoneEvent(milestone_name="MILESTONE_ACHIEVED", message="Milestone achieved! Commencing instant Flat Book.")))
+            asyncio.create_task(self.event_bus.publish(CommandEvent(action="FLAT_BOOK", payload=None)))
+            
+            # TASK 3: VAULT RESET & ANCHORING
+            # Reset session_start_equity and initial_balance to the newly achieved peak equity
             self.session_start_equity = current_equity
+            self.initial_balance = current_equity
+            self._hwm = current_equity
+            
+            # Update the _vault_floor to calculate from the NEW anchored equity
+            self._vault_secured = False # Un-secure the vault so the shield applies to the new floor
+            self._vault_floor = current_equity * 0.10
+            
+            asyncio.create_task(self._save_hwm())
+            
             if getattr(self, 'telemetry_state', None):
                 self.telemetry_state.session_start_equity = self.session_start_equity
                 self.telemetry_state.next_milestone_target = self.session_start_equity * self.target_multiplier
 
-        if not hasattr(self, 'session_start_equity'):
-            self.session_start_equity = float(self.initial_balance)
-            self.target_multiplier = 2.0
-
-        if self.session_start_equity > 0 and current_equity >= (self.session_start_equity * self.target_multiplier):
-            logger.info(f"MILESTONE ACHIEVED: {self.target_multiplier*100}% ROI! Eq: {current_equity}. Triggering Flat Book.")
-            from src.core.event_bus import MilestoneEvent, CommandEvent
-            asyncio.create_task(self.event_bus.publish(MilestoneEvent(milestone_name="MILESTONE_ACHIEVED", message="Milestone achieved! Commencing instant Flat Book.")))
-            asyncio.create_task(self.event_bus.publish(CommandEvent(action="FLAT_BOOK", payload=None)))
-            
-            # Immediately reset session baseline and continue without halting
-            self.session_start_equity = float(current_equity)
-            self.initial_balance = float(current_equity)
-            self._hwm = float(current_equity)
-            asyncio.create_task(self._save_hwm())
-            
-        initial_balance = float(self.initial_balance)
-        
-        if current_equity >= initial_balance * 2.0:
-            if not getattr(self, '_vault_secured', False):
-                self._vault_secured = True
-                self._vault_floor = initial_balance * 1.05
-                asyncio.create_task(self._save_hwm())
-                from src.core.event_bus import RiskAlertEvent
-                asyncio.create_task(self.event_bus.publish(RiskAlertEvent(level="INFO", message="100_PCT_ROI_VAULT_SECURED")))
-                logger.info(f"100% ROI Vault Secured! Drawdown Floor dynamically set to {self._vault_floor:.2f}.")
-
-        if getattr(self, '_vault_secured', False):
-            # When vault is secured, bypass standard global DD to keep scaling using House Money.
-            # We explicitly do NOT trigger doomsday if current_equity <= self._vault_floor
-            # because calculate_lot_size will naturally scale exposure to 0.0, idling the bot
-            # without halting the event loop.
-            return True
-
-        # Phase 21: High-Water Mark Tracking
         if current_equity > self._hwm:
             self._hwm = current_equity
             asyncio.create_task(self._save_hwm())
             
-        if config.DRAWDOWN_TYPE == "EQUITY_TRAILING":
+        import src.core.config as config
+        if getattr(config, 'DRAWDOWN_TYPE', '') == "EQUITY_TRAILING":
             ref_balance = self._hwm
         else:
             ref_balance = self.initial_balance
             
-        global_drawdown_pct = ((ref_balance - current_equity) / ref_balance) * 100.0 if ref_balance > 0 else 0.0
+        # LINEAR INSTITUTIONAL DRAWDOWN MODEL
+        vault_floor = ref_balance * 0.10
+        # Ensure our new anchored floor is respected
+        vault_floor = max(vault_floor, getattr(self, '_vault_floor', 0.0))
         
-        loss_pct = ((start_equity - current_equity) / start_equity) * 100.0
-        profit_pct = ((current_equity - start_equity) / start_equity) * 100.0
-        
-        # Drawdown limits and execution locks removed. The system must adapt, not halt.
+        if current_equity <= vault_floor:
+            # Enforce hard absolute vault_floor
+            msg = f"Hard Vault Floor Reached ({vault_floor:.2f}). Halting to protect capital."
+            await self._trigger_doomsday(msg)
+            return False
+
         if current_equity > self.highest_equity:
             try:
                 self.highest_equity = float(current_equity)
@@ -271,6 +263,7 @@ class RiskManager:
                 pass
                 
         return True
+
     def calculate_spread_penalty(self, current_spread: float, baseline_spread: float = 35.0, max_hard_limit: float = 100.0) -> float:
         if current_spread <= baseline_spread:
             return 1.0
@@ -281,6 +274,8 @@ class RiskManager:
 
     def calculate_dynamic_lot(self, equity: float, risk_percent: float, sl_points: float, point_value: float, volume_step: float, volume_min: float, free_margin: float, margin_rate: float, atr: float = None) -> float:
         import math
+        import MetaTrader5 as mt5
+        
         if atr and atr > 0:
             sl_points = atr * 1.5
         elif sl_points <= 0:
@@ -289,7 +284,24 @@ class RiskManager:
         if sl_points <= 0 or point_value <= 0:
             return float(volume_min)
             
-        risk_amount = equity * risk_percent
+        unrealized_profit = 0.0
+        has_risk_free_tickets = False
+        if hasattr(self, 'protected_tickets') and len(self.protected_tickets) > 0:
+            positions = mt5.positions_get()
+            if positions:
+                for p in positions:
+                    if p.ticket in self.protected_tickets:
+                        unrealized_profit += getattr(p, 'profit', 0.0)
+                        has_risk_free_tickets = True
+                        
+        effective_equity = equity + max(0.0, unrealized_profit)
+        risk_amount = effective_equity * risk_percent
+        
+        ASYMMETRIC_KELLY_MULTIPLIER = 1.25
+        if has_risk_free_tickets:
+            risk_amount *= ASYMMETRIC_KELLY_MULTIPLIER
+            logger.info(f"ASYMMETRIC SCALING: Risk-free tickets detected, applied {ASYMMETRIC_KELLY_MULTIPLIER}x multiplier.")
+            
         raw_lot = risk_amount / (sl_points * point_value)
         
         if volume_step > 0:
@@ -299,8 +311,12 @@ class RiskManager:
             
         lot = round(lot, 8)
         
+        import src.core.config as config
+        volume_max = getattr(config, 'VOLUME_MAX', 100.0)
         if lot < volume_min:
-            return 0.0
+            return volume_min
+        if lot > volume_max:
+            lot = volume_max
             
         while lot >= volume_min:
             req_margin = lot * margin_rate
@@ -310,7 +326,7 @@ class RiskManager:
             lot = round(lot, 8)
             
         if lot < volume_min:
-            return 0.0
+            return volume_min
             
         return float(lot)
 
@@ -344,16 +360,20 @@ class RiskManager:
             if not symbol_info:
                 return 0.0
 
-            risk_percent = getattr(config, 'BASE_RISK_PCT', 0.10)
-            
-            # Anti-Martingale drawdown shield REMOVED to allow free-roll compounding
-                    
+            # Disable Linear Drawdown Scaling to allow max aggression for 100% daily target
+            base_risk_pct = 0.40
+            risk_percent = base_risk_pct
+
             if getattr(self, 'telemetry_state', None):
                 self.telemetry_state.session_start_equity = self.session_start_equity
                 self.telemetry_state.next_milestone_target = self.session_start_equity * self.target_multiplier
                 self.telemetry_state.live_risk_pct = risk_percent * 100.0
 
             strict_sl_points = (atr * 1.5) if atr and atr > 0 else 30.0
+            # P7: Structural Minimum Stop Floor
+            MIN_STRUCTURAL_SL = getattr(config, 'MIN_STRUCTURAL_SL_POINTS', 200.0)
+            if strict_sl_points < MIN_STRUCTURAL_SL:
+                strict_sl_points = MIN_STRUCTURAL_SL
 
             tick_size = getattr(symbol_info, 'trade_tick_size', 1e-5)
             tick_value = getattr(symbol_info, 'trade_tick_value', 1.0)
@@ -363,11 +383,19 @@ class RiskManager:
 
             # True Free-Roll Pyramiding Risk Vault
             open_positions = await run_mt5_task(lambda: mt5.positions_get(symbol=symbol))
+            pending_orders = await run_mt5_task(lambda: mt5.orders_get(symbol=symbol))
             
             exposed_risk_money = 0.0
+            unrealized_profit_rf = 0.0
+            has_risk_free_tickets = False
+            
+
+            
             if open_positions:
                 for p in open_positions:
                     if hasattr(self, 'protected_tickets') and p.ticket in self.protected_tickets:
+                        unrealized_profit_rf += getattr(p, 'profit', 0.0)
+                        has_risk_free_tickets = True
                         continue
                     
                     sl = getattr(p, 'sl', 0.0)
@@ -384,18 +412,33 @@ class RiskManager:
                     
                     exposed_risk_money += (risk_points * point_value * p.volume)
 
-            # The Vault's available daily risk pool
-            max_vault_risk_money = equity * risk_percent
+            # TASK 1 & 2: Calculate allowable volume based on (Core Equity + Unrealized Profit) * base_risk
+            effective_equity = equity + max(0.0, unrealized_profit_rf)
+            
+            max_vault_risk_money = effective_equity * risk_percent
             available_risk_money = max(0.0, max_vault_risk_money - exposed_risk_money)
             
+            if getattr(self, '_locked_risk_amount', 0.0) > 0:
+                available_risk_money = max(0.0, available_risk_money - self._locked_risk_amount)
+            
             if available_risk_money <= 0.01:
-                logger.info(f"Risk Vault Exhausted: ${exposed_risk_money:.2f} currently at risk. Waiting for Break-Even release to recycle margin.")
-                return 0.0
+                if has_risk_free_tickets:
+                    logger.info("Risk Vault Exhausted, but Risk-Free Free-Roll is ACTIVE. Forcing minimum volume.")
+                    volume_min_req = getattr(symbol_info, 'volume_min', 0.01)
+                    available_risk_money = (strict_sl_points * point_value * volume_min_req) * 1.5
+                else:
+                    logger.warning(f"Risk Vault Exhausted: max_vault={max_vault_risk_money:.2f}, exposed={exposed_risk_money:.2f}. Cannot safely add more risk.")
+                    return 0.0
                 
             conviction_multiplier = min(1.0, conviction / 85.0) if conviction > 0 else 0.0
             allocated_risk_money = available_risk_money * conviction_multiplier
             
-            # Operation: Convex Risk Allocation & Hyper-Scaling
+            # TASK 2: Asymmetric Kelly Multiplier for Hyper-Scaling
+            ASYMMETRIC_KELLY_MULTIPLIER = 2.0
+            if has_risk_free_tickets:
+                allocated_risk_money *= ASYMMETRIC_KELLY_MULTIPLIER
+                logger.info(f"ASYMMETRIC SCALING: Risk-free tickets detected, applied {ASYMMETRIC_KELLY_MULTIPLIER}x multiplier.")
+
             if is_hyper_scale:
                 allocated_risk_money *= 2.0
                 logger.info("HYPER-SCALE: Applied 2.0x asymmetric multiplier to base risk allocation.")
@@ -414,9 +457,15 @@ class RiskManager:
 
             lot = round(lot, 8)
             
-            # Initial min clamp before margin check
-            if raw_lot > 0 and lot < volume_min:
-                lot = volume_min
+            # P7: Patience Gate
+            # USER OVERRIDE: "No need to protect a demo account. Let it trade fully."
+            # We bypass the strict risk budget rejection and force the minimum lot size (0.01) so the bot can actually trade!
+            if allocated_risk_money < (strict_sl_points * point_value * volume_min):
+                logger.warning(f"Risk Budget Low, but forcing {volume_min} lot for Demo Aggressive Testing.")
+                return volume_min
+            
+            if lot < volume_min:
+                return volume_min
 
             action = mt5.ORDER_TYPE_BUY
             price = symbol_info.ask
@@ -437,14 +486,13 @@ class RiskManager:
                 lot = math.floor(lot / volume_step) * volume_step
             lot = round(lot, 8)
             
-            # Final clamp: If we still want to trade (raw_lot > 0), ensure we hit at least volume_min
             if raw_lot > 0 and lot < volume_min:
                 if req_margin and req_margin > 0:
                     margin_per_lot = req_margin / (lot if lot > 0 else volume_min)
                     if free_margin >= margin_per_lot * volume_min:
                         lot = volume_min
                     else:
-                        lot = 0.0 # Insufficient margin even for the minimum lot size
+                        lot = 0.0
                 else:
                     lot = volume_min
 
@@ -452,16 +500,14 @@ class RiskManager:
                 lot = volume_max
 
             if lot < volume_min:
-                return 0.0
+                return volume_min
 
-            logger.info(f"UNRESTRICTED COMPOUNDING: Eq: ${equity:.2f} | Risk: {risk_percent*100:.2f}% | SL: {strict_sl_points:.1f} pts | Final Vol: {lot}")
+            logger.info(f"UNRESTRICTED COMPOUNDING: Eq:  | Risk: {risk_percent*100:.2f}% | SL: {strict_sl_points:.1f} pts | Final Vol: {lot}")
 
             return float(lot)
         except Exception as e:
-            logger.error(f"calculate_lot_size math error: {e}. Returning 0.0 volume to prevent unwanted hardcoded size.")
+            logger.error(f"calculate_lot_size math error: {e}. Returning 0.0 volume.")
             return 0.0
-
-
 
     def calculate_sl_tp(self, symbol: str, entry_price: float, direction: str, volume: float, atr: float = None, sl_multiplier: float = 1.5, tp_multiplier: float = 3.0, sl_points: float = None, tp_points: float = None) -> tuple:
         symbol_info = mt5.symbol_info(symbol)
@@ -498,6 +544,11 @@ class RiskManager:
         else:
             dynamic_sl_points = atr * sl_multiplier
             
+        import src.core.config as config
+        min_sl = getattr(config, 'MIN_STRUCTURAL_SL_POINTS', 200.0)
+        if dynamic_sl_points < min_sl:
+            dynamic_sl_points = min_sl
+            
         dynamic_tp_points = dynamic_sl_points * (tp_multiplier / sl_multiplier) if sl_multiplier > 0 else dynamic_sl_points * 2.0
 
         acc_info = mt5.account_info()
@@ -511,3 +562,4 @@ class RiskManager:
             tp = entry_price - (dynamic_tp_points * point)
             
         return sl, tp
+

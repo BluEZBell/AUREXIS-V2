@@ -4,7 +4,7 @@ import time
 import datetime
 import numpy as np
 import MetaTrader5 as mt5
-from src.core.event_bus import EventBus, SignalEvent, OrderEvent, ErrorEvent, PositionsUpdateEvent, TickEvent, StructuralTrendEvent
+from src.core.event_bus import EventBus, SignalEvent, OrderEvent, ErrorEvent, PositionsUpdateEvent, TickEvent, StructuralTrendEvent, CommandEvent, LogEvent
 from src.core.telemetry import TelemetryLogger
 from src.core.config import MT5_TERMINAL_PATH, MAGIC_NUMBER, setup_logger, run_mt5_task
 import src.core.config as config
@@ -38,7 +38,7 @@ class MT5Bridge:
         self.terminal_path = MT5_TERMINAL_PATH
         from src.core.dynamic_params import DynamicParamStore
         self.param_store = DynamicParamStore()
-        from src.core.event_bus import CommandEvent
+        
         self.event_bus.subscribe(SignalEvent, self.process_signal)
         self.event_bus.subscribe(OrderEvent, self.process_order_request)
         self.event_bus.subscribe(ErrorEvent, self.handle_error)
@@ -67,7 +67,6 @@ class MT5Bridge:
         if not initialized:
             err_details = await asyncio.to_thread(mt5.last_error)
             logger.critical(f"Failed to initialize MetaTrader 5! Error: {err_details}")
-            from src.core.event_bus import ErrorEvent
             await self.event_bus.publish(ErrorEvent("MT5Bridge", f"SYSTEM ERROR: MT5 IPC Init Failed. {err_details}", critical=True))
             return False
             
@@ -131,7 +130,7 @@ class MT5Bridge:
         msg = f"> RESOLVED TRADING SYMBOL: {original} -> {config.TRADING_SYMBOL}"
         logger.info(msg)
         
-        from src.core.event_bus import LogEvent
+        
         await self.event_bus.publish(LogEvent(message=msg))
         return True
             
@@ -399,9 +398,11 @@ class MT5Bridge:
 
                     from src.core.math_engine import calculate_volume_profile
                     if m5_rates is not None and len(m5_rates) > 0:
+                        m5_highs_for_poc = np.array([x['high'] for x in m5_rates])
+                        m5_lows_for_poc = np.array([x['low'] for x in m5_rates])
                         m5_closes_for_poc = np.array([x['close'] for x in m5_rates])
                         m5_vols_for_poc = np.array([x['tick_volume'] if 'tick_volume' in m5_rates.dtype.names else x['real_volume'] for x in m5_rates])
-                        poc, vah, val = calculate_volume_profile(m5_closes_for_poc, m5_vols_for_poc)
+                        poc, vah, val = calculate_volume_profile(m5_highs_for_poc, m5_lows_for_poc, m5_closes_for_poc, m5_vols_for_poc)
                     else:
                         poc = 0.0
                         
@@ -438,7 +439,7 @@ class MT5Bridge:
             logger.info(message)
         elif level == "error":
             logger.error(message)
-        from src.core.event_bus import LogEvent
+        
         await self.event_bus.publish(LogEvent(message))
 
     async def start_position_broadcaster(self):
@@ -533,7 +534,7 @@ class MT5Bridge:
                         self._panic_halt = False
                         self.risk_manager.reset_daily_state(self._start_equity)
                         
-                        from src.core.event_bus import CommandEvent
+                        
                         await self.event_bus.publish(CommandEvent(action="DAILY_RESET"))
                         await self._log_and_publish(f"MIDNIGHT ROLLOVER: Prop-Firm Midnight Alignment triggered: Daily Risk Limits Reset at {config.PROP_FIRM_RESET_HOUR:02d}:00 {config.PROP_FIRM_RESET_TZ}")
                         
@@ -639,7 +640,7 @@ class MT5Bridge:
                 atr_m15 = self._latest_m15_atr
             if atr_m15 <= 0:
                 atr_m15 = self.param_store.get_fallback_atr(symbol)
-            sl_points_fb = atr_m15 * 1.5
+            sl_points_fb = atr_m15 * 2.5
             
             volume_to_execute = getattr(signal, 'volume', 0.01)
             
@@ -713,19 +714,40 @@ class MT5Bridge:
                 
                 # Operation: HFT Aggression - Naked Order Protection (Hard Catastrophic SL)
                 hard_sl_dist = atr_points * 2.0 * symbol_info.point
+                
+                # HFT MIN CAP: Ensure trades have at least 200 points of breathing room regardless of ATR
+                min_hard_sl_points = 200.0 * symbol_info.point
+                if hard_sl_dist < min_hard_sl_points:
+                    hard_sl_dist = min_hard_sl_points
+                
+                # HFT MAX CAP: Never place a hard SL wider than 2000 points to protect account from extreme gap spikes
+                max_hard_sl_points = 2000.0 * symbol_info.point
+                if hard_sl_dist > max_hard_sl_points:
+                    hard_sl_dist = max_hard_sl_points
+                    
                 hard_sl = round(price - hard_sl_dist, digits) if action == mt5.ORDER_TYPE_BUY else round(price + hard_sl_dist, digits)
                 
+                action_type = mt5.ORDER_TYPE_BUY if signal.direction == "BUY" else mt5.ORDER_TYPE_SELL
+                
+                # Place limit order exactly at the current bid/ask to catch spread, or slightly better
+                # Using 0 slippage to act as a pure passive maker order
+                if action_type == mt5.ORDER_TYPE_BUY:
+                    exec_price = tick_info.ask
+                else:
+                    exec_price = tick_info.bid
+                
+                raw_comment = f"AUREXIS {getattr(signal, 'strategy_id', 'UNKN')}"
                 request = {
                     "action": mt5.TRADE_ACTION_DEAL,
                     "symbol": str(symbol),
                     "volume": float(volume),
-                    "type": int(action),
-                    "price": round(float(price), digits),
+                    "type": int(action_type),
+                    "price": round(float(exec_price), digits),
                     "sl": float(hard_sl),
                     "tp": 0.0,
                     "deviation": int(dev),
                     "magic": int(MAGIC_NUMBER),
-                    "comment": f"AUREXIS {getattr(signal, 'strategy_id', 'UNKN')}",
+                    "comment": raw_comment[:15],
                     "type_time": int(mt5.ORDER_TIME_GTC),
                     "type_filling": self._get_filling_mode(str(symbol)),
                 }
@@ -822,6 +844,17 @@ class MT5Bridge:
                                     atr_points = getattr(signal_event, "atr", 50.0)
                                     if atr_points <= 0: atr_points = 50.0
                                     hard_sl_dist = atr_points * 2.0 * symbol_info.point
+                                    
+                                    # HFT MIN CAP: Ensure trades have at least 200 points of breathing room regardless of ATR
+                                    min_hard_sl_points = 200.0 * symbol_info.point
+                                    if hard_sl_dist < min_hard_sl_points:
+                                        hard_sl_dist = min_hard_sl_points
+                                        
+                                    # HFT MAX CAP: Align retry SL cap with initial order cap (2000 points) to prevent instant broker stop-outs
+                                    max_hard_sl_points = 2000.0 * symbol_info.point
+                                    if hard_sl_dist > max_hard_sl_points:
+                                        hard_sl_dist = max_hard_sl_points
+                                        
                                     req_payload['sl'] = round(req_payload['price'] - hard_sl_dist, symbol_info.digits) if req_payload['type'] == mt5.ORDER_TYPE_BUY else round(req_payload['price'] + hard_sl_dist, symbol_info.digits)
                             continue
                         else:
@@ -884,7 +917,6 @@ class MT5Bridge:
                     comment = getattr(result, 'comment', 'None')
                     error_msg = f"FATAL REJECTION TELEMETRY: Order failed after {retries_for_price} price retries. RetCode={retcode}, LastError={err_dict}, Comment={comment}. Request: {req_payload}"
                     logger.error(error_msg)
-                    from src.core.event_bus import ErrorEvent
                     await self.event_bus.publish(ErrorEvent(source="MT5Bridge", message=error_msg, critical=True))
 
             asyncio.create_task(_execute_and_retry(req, signal))

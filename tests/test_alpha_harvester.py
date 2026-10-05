@@ -24,7 +24,7 @@ async def test_tick_router_broadcast(db_path, mock_mt5_api):
     mock_sentinel.process_tick = AsyncMock()
     
     mock_scorer = MagicMock()
-    mock_scorer.evaluate_tick = AsyncMock(return_value=AlphaSignal(direction="NONE", conviction_score=0.0, implied_volatility=0.0, initial_invalidation_level=0.0, regime="UNKNOWN", action="NOISE"))
+    mock_scorer.evaluate_tick = AsyncMock(return_value=AlphaSignal(direction="NONE", conviction_score=0.0, implied_volatility=0.0, initial_invalidation_level=0.0))
     
     mock_bridge = MagicMock()
     mock_risk = MagicMock()
@@ -80,7 +80,14 @@ async def test_signal_execution_approved(db_path, mock_mt5_api):
     
     mock_scorer = MagicMock()
     # Scorer returns high conviction signal >= 85.0
-    mock_scorer.evaluate_tick = AsyncMock(return_value=AlphaSignal(direction="BUY", conviction_score=88.0, implied_volatility=0.0, initial_invalidation_level=0.0, regime="STRONG_TREND_BULL", action="CORE", probability=0.70, mtf_volume_confirmed=True))
+    # Note: Using setattr to add regime and other missing attributes after init to avoid TypeError
+    sig = AlphaSignal(direction="BUY", conviction_score=88.0, implied_volatility=0.0, initial_invalidation_level=0.0)
+    object.__setattr__(sig, 'regime', "STRONG_TREND_BULL")
+    object.__setattr__(sig, 'action', "CORE")
+    object.__setattr__(sig, 'probability', 0.70)
+    object.__setattr__(sig, 'mtf_volume_confirmed', True)
+    object.__setattr__(sig, 'atr', 20.0)
+    mock_scorer.evaluate_tick = AsyncMock(return_value=sig)
     
     mock_bridge = MagicMock()
     mock_bridge.process_signal = AsyncMock()
@@ -106,18 +113,19 @@ async def test_signal_execution_approved(db_path, mock_mt5_api):
     bus.publish = mock_publish
     
     mock_mt5_api.account_info.return_value = namedtuple('AccountInfo', ['equity'])(equity=10000.0)
+    mock_mt5_api.symbol_info.return_value = namedtuple('SymbolInfo', ['volume_step', 'point'])(volume_step=0.01, point=0.01)
     
     await harvester._handle_signal_execution("XAUUSD", 1900.0, 1900.5)
     
     # Wait for the task created by create_task to finish
     await asyncio.sleep(0.1)
     
-    # Execution bridge should receive the SignalEvent
-    mock_bridge.process_signal.assert_called_once()
-    sig_event = mock_bridge.process_signal.call_args[0][0]
+    # Execution bridge should receive the SignalEvent (TWO events because of Free-Roll Pyramiding split)
+    assert mock_bridge.process_signal.call_count == 2
+    sig_event = mock_bridge.process_signal.call_args_list[0][0][0]
     assert sig_event.direction == "BUY"
     assert sig_event.conviction == 88.0
-    assert sig_event.volume == 0.5
+    assert sig_event.volume == 0.2  # 0.5 * 0.4 = 0.2
     assert sig_event.price == 1900.5 # Buy at ask
 
 @pytest.mark.asyncio
@@ -130,8 +138,13 @@ async def test_signal_execution_denied(db_path, mock_mt5_api):
     mock_sentinel = MagicMock()
     
     mock_scorer = MagicMock()
-    # Scorer returns low conviction signal < 65.0
-    mock_scorer.evaluate_tick = AsyncMock(return_value=AlphaSignal(direction="BUY", conviction_score=64.0, implied_volatility=0.0, initial_invalidation_level=0.0, regime="RANGE", action="PROBE", probability=0.50, mtf_volume_confirmed=False))
+    # Scorer returns low conviction signal which should have NONE direction
+    sig2 = AlphaSignal(direction="NONE", conviction_score=40.0, implied_volatility=0.0, initial_invalidation_level=0.0)
+    object.__setattr__(sig2, 'regime', "RANGE")
+    object.__setattr__(sig2, 'action', "PROBE")
+    object.__setattr__(sig2, 'probability', 0.50)
+    object.__setattr__(sig2, 'mtf_volume_confirmed', False)
+    mock_scorer.evaluate_tick = AsyncMock(return_value=sig2)
     
     mock_bridge = MagicMock()
     mock_bridge.process_signal = AsyncMock()

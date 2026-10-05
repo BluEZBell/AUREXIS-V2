@@ -25,6 +25,7 @@ async def test_ledger_crash_recovery(db_path, mock_mt5_api):
     cycle.set_tickets = [1000, 1001]
     cycle.dispatched_events.add("SCOUT_SUCCESS")
     await ledger.save_cycle(cycle)
+    await asyncio.sleep(1.5) # Allow background _batch_flush to commit to SQLite
     
     # 2. Simulate Crash (create new instance)
     bus2 = EventBus()

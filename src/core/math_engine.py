@@ -164,27 +164,35 @@ def detect_absorption(open, high, low, close, swing_level, is_upper_sweep):
             
     return absorption
 
-def calculate_volume_profile(closes, volumes, bins=50):
-    if closes is None or volumes is None:
+def calculate_volume_profile(highs, lows, closes, volumes, bins=20):
+    if closes is None or volumes is None or highs is None or lows is None:
         return 0.0, 0.0, 0.0
         
     closes = np.asarray(closes)
     volumes = np.asarray(volumes)
+    highs = np.asarray(highs)
+    lows = np.asarray(lows)
     
-    min_len = min(len(closes), len(volumes))
+    min_len = min(len(closes), len(volumes), len(highs), len(lows))
     if min_len == 0:
         return 0.0, 0.0, 0.0
         
     closes = closes[-min_len:]
     volumes = volumes[-min_len:]
-        
-    min_price = np.min(closes)
-    max_price = np.max(closes)
+    highs = highs[-min_len:]
+    lows = lows[-min_len:]
+    
+    # Calculate Typical Price (H+L+C)/3 for a better volume anchor
+    typical_prices = (highs + lows + closes) / 3.0
+    
+    min_price = np.min(lows)
+    max_price = np.max(highs)
     
     if min_price == max_price:
         return float(min_price), float(min_price), float(min_price)
         
-    hist, bin_edges = np.histogram(closes, bins=bins, weights=volumes)
+    # Use 20 bins to aggregate 50 candles better
+    hist, bin_edges = np.histogram(typical_prices, bins=bins, weights=volumes)
     total_vol = np.sum(hist)
     if total_vol == 0:
          return float(closes[-1]), float(max_price), float(min_price)

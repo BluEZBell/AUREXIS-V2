@@ -4,7 +4,7 @@ import time
 import os
 import MetaTrader5 as mt5
 from src.core.event_bus import EventBus, SignalEvent, OrderEvent, MacroUpdateEvent, StructuralTrendEvent, TickEvent
-from src.core.config import setup_logger, TRADING_SYMBOL, run_mt5_task
+from src.core.config import setup_logger, run_mt5_task; import src.core.config as config
 
 logger = setup_logger("quant_lake")
 
@@ -93,8 +93,8 @@ class QuantDataHarvester:
         point = 0.00001
         try:
             # Snapshot spread precisely at signal time
-            tick = await run_mt5_task(lambda: mt5.symbol_info_tick(TRADING_SYMBOL))
-            symbol_info = await run_mt5_task(lambda: mt5.symbol_info(TRADING_SYMBOL))
+            tick = await run_mt5_task(lambda: mt5.symbol_info_tick(config.TRADING_SYMBOL))
+            symbol_info = await run_mt5_task(lambda: mt5.symbol_info(config.TRADING_SYMBOL))
             if tick and symbol_info:
                 point = symbol_info.point
                 self._last_spread_points = (tick.ask - tick.bid) / point

@@ -3,7 +3,7 @@ import time
 import MetaTrader5 as mt5
 from typing import Dict
 from src.core.event_bus import EventBus, TickEvent, OrderEvent, StructuralTrendEvent, TargetHitEvent, SentinelKillEvent, WeekendBlackoutEvent
-from src.core.config import setup_logger, run_mt5_task, TRADING_SYMBOL, MAGIC_NUMBER
+from src.core.config import setup_logger, run_mt5_task, MAGIC_NUMBER; import src.core.config as config
 import src.core.config as config
 from src.core.event_bus import StrategyStateEvent
 
@@ -54,7 +54,7 @@ class TickSentinel:
     async def sweep_cycles(self):
         active_cycles = list(self.campaign_ledger.active_cycles.values())
         
-        positions = await run_mt5_task(lambda: mt5.positions_get(symbol=TRADING_SYMBOL))
+        positions = await run_mt5_task(lambda: mt5.positions_get(symbol=config.TRADING_SYMBOL))
         
         for cycle in active_cycles:
                 
@@ -79,17 +79,17 @@ class TickSentinel:
         cycle.exit_reason = reason
         await self.campaign_ledger.save_cycle(cycle)
         
-        tick_info = await run_mt5_task(lambda: mt5.symbol_info_tick(TRADING_SYMBOL))
+        tick_info = await run_mt5_task(lambda: mt5.symbol_info_tick(config.TRADING_SYMBOL))
         close_price_buy = tick_info.bid if tick_info else 0.0
         close_price_sell = tick_info.ask if tick_info else 0.0
         
         price = close_price_buy if cycle.direction == "BUY" else close_price_sell
         
         if cycle.probe_ticket:
-            await self.event_bus.publish(OrderEvent(cycle.probe_ticket, TRADING_SYMBOL, "CLOSE", 0.0, price, "REQUEST", cycle.cycle_id))
+            await self.event_bus.publish(OrderEvent(cycle.probe_ticket, config.TRADING_SYMBOL, "CLOSE", 0.0, price, "REQUEST", cycle.cycle_id))
             await self.event_bus.publish(SentinelKillEvent(cycle.probe_ticket, cycle.cycle_id, reason, cycle.cycle_pnl))
         for tkt in getattr(cycle, 'set_tickets', []):
-            await self.event_bus.publish(OrderEvent(tkt, TRADING_SYMBOL, "CLOSE", 0.0, price, "REQUEST", cycle.cycle_id))
+            await self.event_bus.publish(OrderEvent(tkt, config.TRADING_SYMBOL, "CLOSE", 0.0, price, "REQUEST", cycle.cycle_id))
             await self.event_bus.publish(SentinelKillEvent(tkt, cycle.cycle_id, reason, cycle.cycle_pnl))
 
     async def start(self):
@@ -110,11 +110,11 @@ class TickSentinel:
         if not self._running:
             return
             
-        if event.symbol != TRADING_SYMBOL:
+        if event.symbol != config.TRADING_SYMBOL:
             return
             
         def _get_positions():
-            return mt5.positions_get(symbol=TRADING_SYMBOL)
+            return mt5.positions_get(symbol=config.TRADING_SYMBOL)
             
         positions = await run_mt5_task(_get_positions)
         if not positions:
@@ -365,7 +365,7 @@ class TickSentinel:
                 
                 close_event = OrderEvent(
                     ticket=ticket,
-                    symbol=TRADING_SYMBOL,
+                    symbol=config.TRADING_SYMBOL,
                     direction="CLOSE",
                     volume=0.0,
                     price=close_price,

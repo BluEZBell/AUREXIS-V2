@@ -8,7 +8,8 @@ class MockLedger: pass
 
 @pytest.mark.asyncio
 async def test_ghost_tp():
-    from src.execution.tick_sentinel import TickSentinel, TRADING_SYMBOL, MAGIC_NUMBER
+    from src.execution.tick_sentinel import TickSentinel
+    from src.core.config import TRADING_SYMBOL, MAGIC_NUMBER
     from collections import namedtuple
     bus = EventBus()
     sentinel = TickSentinel(bus, MockRisk(), MockLedger())
