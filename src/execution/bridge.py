@@ -13,27 +13,19 @@ from src.execution.risk_manager import RiskManager
 logger = setup_logger("execution_bridge")
 
 def resolve_and_select_symbol(base_symbol: str) -> str:
-    symbols = mt5.symbols_get()
-    if symbols:
-        gold_keywords = ["XAUUSD", "GOLD"]
-        # Ensure we pick a fully tradable symbol if available
-        for s in symbols:
-            name_upper = s.name.upper()
-            if any(k in name_upper for k in gold_keywords):
-                if s.trade_mode == mt5.SYMBOL_TRADE_MODE_FULL or s.trade_mode == 4:
-                    mt5.symbol_select(s.name, True)
-                    if mt5.symbol_info_tick(s.name) is not None:
-                        return s.name
-                        
-        # Fallback to any matched keyword symbol that provides ticks
-        for s in symbols:
-            name_upper = s.name.upper()
-            if any(k in name_upper for k in gold_keywords):
-                mt5.symbol_select(s.name, True)
-                if mt5.symbol_info_tick(s.name) is not None:
-                    return s.name
+    # STRICT EXACT MATCHING ONLY. No fuzzy matching allowed.
+    success = mt5.symbol_select(base_symbol, True)
+    if success:
+        symbol_info = mt5.symbol_info(base_symbol)
+        if symbol_info is not None:
+            # We enforce exact matching. We do not check trade_mode here because 
+            # if the user specifies a symbol, we must use it or fail.
+            if mt5.symbol_info_tick(base_symbol) is not None:
+                return base_symbol
 
-    return base_symbol
+    error_msg = f"Strict Symbol Resolution Failed: The configured TRADING_SYMBOL '{base_symbol}' could not be selected on the broker server. Update .env TRADING_SYMBOL to the exact Market Watch name."
+    logger.critical(error_msg)
+    raise RuntimeError(error_msg)
 
 from src.execution.profiler import ExecutionProfiler
 class MT5Bridge:

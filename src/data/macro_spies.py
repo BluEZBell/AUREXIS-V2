@@ -18,15 +18,6 @@ def resolve_and_select_symbol(base_symbol: str) -> str:
         mt5.symbol_select(cand, True)
         if mt5.symbol_info(cand) is not None and mt5.symbol_info_tick(cand) is not None:
             return cand
-            
-    # Fallback to startswith
-    symbols = mt5.symbols_get()
-    if symbols:
-        for s in symbols:
-            if s.name.startswith(base_symbol):
-                mt5.symbol_select(s.name, True)
-                if mt5.symbol_info_tick(s.name) is not None:
-                    return s.name
                     
     return base_symbol
 
