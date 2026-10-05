@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -460,35 +460,35 @@
                     }
                     
                     // Strategy State
-                    if (state.latest_strategy_state) {
-                        const st = state.latest_strategy_state;
+                    if (state.latest_structural_trend) {
+                        const tr = state.latest_structural_trend;
                         const adxEl = document.getElementById('matrix-adx');
-                        if (st.adx_m15 !== undefined && adxEl) {
-                            if (st.adx_m15 === "AWAITING_DATA" || st.adx_m15 === null) {
+                        if (tr.m15_adx !== undefined && adxEl) {
+                            if (tr.m15_adx === "AWAITING_DATA" || tr.m15_adx === null) {
                                 adxEl.innerText = 'AWAITING_DATA';
                                 adxEl.className = 'text-yellow-400 font-bold';
                             } else {
-                                adxEl.innerText = st.adx_m15 < 22.0 ? 'RANGE' : 'TREND';
+                                adxEl.innerText = tr.m15_adx < 22.0 ? 'RANGE' : 'TREND';
                                 adxEl.className = 'text-blue-400 font-bold';
                             }
                         }
                         const zscoreEl = document.getElementById('matrix-zscore');
-                        if (st.z_score !== undefined && zscoreEl) {
-                            if (st.z_score === "AWAITING_DATA" || st.z_score === null) {
+                        if (tr.m15_distance_z_score !== undefined && zscoreEl) {
+                            if (tr.m15_distance_z_score === "AWAITING_DATA" || tr.m15_distance_z_score === null) {
                                 zscoreEl.innerText = 'AWAITING_DATA';
                                 zscoreEl.className = 'text-yellow-400 font-bold';
                             } else {
-                                zscoreEl.innerText = st.z_score.toFixed(2);
+                                zscoreEl.innerText = tr.m15_distance_z_score.toFixed(2);
                                 zscoreEl.className = 'text-purple-400 font-bold';
                             }
                         }
                         const atrEl = document.getElementById('matrix-atr');
-                        if (st.atr_m15 !== undefined && atrEl) {
-                            if (st.atr_m15 === "AWAITING_DATA" || st.atr_m15 === null) {
+                        if (tr.m15_atr !== undefined && atrEl) {
+                            if (tr.m15_atr === "AWAITING_DATA" || tr.m15_atr === null) {
                                 atrEl.innerText = 'AWAITING_DATA';
                                 atrEl.className = 'text-yellow-400 font-bold';
                             } else {
-                                atrEl.innerText = st.atr_m15.toFixed(2);
+                                atrEl.innerText = tr.m15_atr.toFixed(2);
                                 atrEl.className = 'text-orange-400 font-bold';
                             }
                         }

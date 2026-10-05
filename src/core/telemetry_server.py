@@ -63,6 +63,7 @@ class TelemetryServer:
         self._latest_structural_trend: Dict[str, Any] = {}
         self._latest_strategy_state: Dict[str, Any] = {}
         self._latest_signal: Dict[str, Any] = {}
+        self._cached_state: Dict[str, Any] = {}
 
         if self.event_bus:
             self._subscribe_events()
@@ -97,6 +98,14 @@ class TelemetryServer:
         
         msg_queue = asyncio.Queue()
         setattr(ws, 'msg_queue', msg_queue)
+        
+        import json
+        if self._cached_state:
+            initial_pack = {
+                "type": "StatePack",
+                "state": self._cached_state
+            }
+            msg_queue.put_nowait(json.dumps(initial_pack, default=self._json_default))
         
         async def writer():
             try:
@@ -179,6 +188,8 @@ class TelemetryServer:
 
             if self.strategy:
                 state["auto_sniper_enabled"] = getattr(self.strategy, "auto_sniper", False)
+                
+            self._cached_state.update(state)
 
             pack = {
                 "type": "StatePack",
@@ -307,14 +318,15 @@ class TelemetryServer:
             from src.core import config
             
             if action == "FORCE_BUY":
-                await self.event_bus.publish(SignalEvent(symbol=config.TRADING_SYMBOL, direction="BUY", strategy_id="MANUAL_FORCE", price=0.0, conviction=100.0, volume=0.0))
+                await self.event_bus.publish(SignalEvent(symbol=config.TRADING_SYMBOL, direction="BUY", strategy_id="MANUAL_FORCE", price=0.0, conviction=100.0, volume=0.01))
             elif action == "FORCE_SELL":
-                await self.event_bus.publish(SignalEvent(symbol=config.TRADING_SYMBOL, direction="SELL", strategy_id="MANUAL_FORCE", price=0.0, conviction=0.0, volume=0.0))
+                await self.event_bus.publish(SignalEvent(symbol=config.TRADING_SYMBOL, direction="SELL", strategy_id="MANUAL_FORCE", price=0.0, conviction=100.0, volume=0.01))
             elif action == "HARVEST_ALL":
                 await self.event_bus.publish(OrderEvent(ticket=0, symbol="ALL", direction="HARVEST_ALL", volume=0.0, price=0.0, status="REQUEST"))
             elif action == "CHOP_50":
                 await self.event_bus.publish(OrderEvent(ticket=0, symbol="ALL", direction="CHOP_50", volume=0.0, price=0.0, status="REQUEST"))
             elif action == "PANIC_HALT":
+                await self.event_bus.publish(OrderEvent(ticket=0, symbol="ALL", direction="PANIC_HALT", volume=0.0, price=0.0, status="REQUEST"))
                 await self.event_bus.publish(ErrorEvent("Web UI", "TACTICAL PANIC HALT INITIATED", critical=True))
             elif action == "TOGGLE_AUTO_SNIPER":
                 await self.event_bus.publish(CommandEvent(action="TOGGLE_AUTO_SNIPER"))

@@ -129,6 +129,10 @@ class LocalLaunchController:
         from src.alpha.order_flow_tracker import OrderFlowTracker
         order_flow = OrderFlowTracker(self.event_bus)
         
+        from src.data.macro_spies import MacroSpyNetwork
+        self.macro_spies = MacroSpyNetwork(self.event_bus)
+        asyncio.create_task(self.macro_spies.start())
+        
         alpha_scorer = AlphaScorer(radar, oracle, self.event_bus, self.dynamic_param_store, telemetry_state=self.telemetry_state, order_flow_tracker=order_flow)
         
         from src.core.adaptive_tuner import AdaptiveTuner
