@@ -32,15 +32,15 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 TELEMETRY_WEBHOOK_URL = os.getenv("TELEMETRY_WEBHOOK_URL", "")
 
 # Macro Configurations
-MACRO_DXY = str(os.getenv("MACRO_DXY", "USDX")).strip()
-MACRO_SP500 = str(os.getenv("MACRO_SP500", "US500Cash")).strip()
-MACRO_VIX = str(os.getenv("MACRO_VIX", "VOLX")).strip()
-MACRO_OIL = str(os.getenv("MACRO_OIL", "OILMn")).strip()
-MACRO_EURUSD = str(os.getenv("MACRO_EURUSD", "EURUSD")).strip()
-MACRO_US10Y = str(os.getenv("MACRO_US10Y", "US10YCash")).strip()
-MACRO_USDJPY = str(os.getenv("MACRO_USDJPY", "USDJPY")).strip()
-MACRO_XAGUSD = str(os.getenv("MACRO_XAGUSD", "SILVER")).strip()
-MACRO_USDCNH = str(os.getenv("MACRO_USDCNH", "USDCNH")).strip()
+MACRO_DXY_ALIASES = [x.strip() for x in os.getenv("MACRO_DXY_ALIASES", "USDX,DXY,USDOLLAR,DX").split(',')]
+MACRO_SP500_ALIASES = [x.strip() for x in os.getenv("MACRO_SP500_ALIASES", "US500Cash,US500,SPX,SP500,S&P500").split(',')]
+MACRO_VIX_ALIASES = [x.strip() for x in os.getenv("MACRO_VIX_ALIASES", "VOLX,VIX,VIX.c").split(',')]
+MACRO_OIL_ALIASES = [x.strip() for x in os.getenv("MACRO_OIL_ALIASES", "OILMn,USOIL,WTI,XTIUSD,USCRUDE").split(',')]
+MACRO_EURUSD_ALIASES = [x.strip() for x in os.getenv("MACRO_EURUSD_ALIASES", "EURUSD,EURUSD.,EURUSD#").split(',')]
+MACRO_US10Y_ALIASES = [x.strip() for x in os.getenv("MACRO_US10Y_ALIASES", "US10YCash,US10YR,TNOTE,TN").split(',')]
+MACRO_USDJPY_ALIASES = [x.strip() for x in os.getenv("MACRO_USDJPY_ALIASES", "USDJPY,USDJPY.,USDJPY#").split(',')]
+MACRO_XAGUSD_ALIASES = [x.strip() for x in os.getenv("MACRO_XAGUSD_ALIASES", "SILVER,XAGUSD,XAGUSD.,XAGUSD#").split(',')]
+MACRO_USDCNH_ALIASES = [x.strip() for x in os.getenv("MACRO_USDCNH_ALIASES", "USDCNH,USDCNH.,USDCNH#").split(',')]
 
 # Phase 14: Hyper-Parameter Calibration
 CHOP_ADX_THRESHOLD = 22.0
