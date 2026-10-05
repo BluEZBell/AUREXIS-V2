@@ -26,6 +26,17 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 TELEMETRY_WEBHOOK_URL = os.getenv("TELEMETRY_WEBHOOK_URL", "")
 
+# Macro Configurations
+MACRO_DXY = str(os.getenv("MACRO_DXY", "USDX")).strip()
+MACRO_SP500 = str(os.getenv("MACRO_SP500", "US500Cash")).strip()
+MACRO_VIX = str(os.getenv("MACRO_VIX", "VOLX")).strip()
+MACRO_OIL = str(os.getenv("MACRO_OIL", "OILMn")).strip()
+MACRO_EURUSD = str(os.getenv("MACRO_EURUSD", "EURUSD")).strip()
+MACRO_US10Y = str(os.getenv("MACRO_US10Y", "US10YCash")).strip()
+MACRO_USDJPY = str(os.getenv("MACRO_USDJPY", "USDJPY")).strip()
+MACRO_XAGUSD = str(os.getenv("MACRO_XAGUSD", "SILVER")).strip()
+MACRO_USDCNH = str(os.getenv("MACRO_USDCNH", "USDCNH")).strip()
+
 # Phase 14: Hyper-Parameter Calibration
 CHOP_ADX_THRESHOLD = 22.0
 PROBE_CONVICTION_MIN = 0.0

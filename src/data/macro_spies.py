@@ -5,35 +5,25 @@ from src.core.config import setup_logger, run_mt5_task
 
 logger = setup_logger("macro_spies")
 
+import src.core.config as config
+
 def resolve_and_select_symbol(base_symbol: str) -> str:
-    candidates = [base_symbol]
-    if base_symbol == "XAUUSD":
-        candidates = ["XAUUSD", "GOLD", "GOLD#", "GOLDm", "XAUUSDm", "GOLDmicro"]
-    elif base_symbol == "XAGUSD":
-        candidates = ["XAGUSD", "SILVER", "SILVER#", "XAGUSDm"]
-    elif base_symbol == "DXY":
-        candidates = ["DXY", "USDX", "USDXCash", "USXCash"]
-        
-    for cand in candidates:
-        mt5.symbol_select(cand, True)
-        if mt5.symbol_info(cand) is not None and mt5.symbol_info_tick(cand) is not None:
-            return cand
-                    
-    return base_symbol
+    # Deprecated: Macro resolution now uses strict exact match via config variables
+    pass
 
 class MacroSpyNetwork:
     def __init__(self, event_bus: EventBus):
         self.event_bus = event_bus
-        self.spies = {
-            "DXY": ['USDXCash', 'USXCash', 'USDX', 'USX', 'DXY'],
-            "EURUSD": ['EURUSD', 'EURUSD.p', 'EURUSD.c', 'EURUSD_micro'],
-            "US10Y": ['US10Cash', 'US10YCash', 'US10YR', 'US10Y', 'TNOTE'],
-            "USDJPY": ['USDJPY', 'USDJPY#', 'USDJPY.d', 'USDJPYm'],
-            "VIX": ['VOLXCash', 'VIXCash', 'VOLX', 'VIX'],
-            "US500": ['US500Cash', 'US500', 'SPX500'],
-            "XAGUSD": ['SILVER', 'XAGUSD', 'SILVER#'],
-            "USDCNH": ['USDCNH', 'USDCNH#'],
-            "USOIL": ['OILCash', 'WTI_Oil', 'WTI', 'USOIL', 'BRENTCash', 'BRENT']
+        self.spies_config = {
+            "DXY": getattr(config, 'MACRO_DXY', 'USDX'),
+            "EURUSD": getattr(config, 'MACRO_EURUSD', 'EURUSD'),
+            "US10Y": getattr(config, 'MACRO_US10Y', 'US10YCash'),
+            "USDJPY": getattr(config, 'MACRO_USDJPY', 'USDJPY'),
+            "VIX": getattr(config, 'MACRO_VIX', 'VOLX'),
+            "US500": getattr(config, 'MACRO_SP500', 'US500Cash'),
+            "XAGUSD": getattr(config, 'MACRO_XAGUSD', 'SILVER'),
+            "USDCNH": getattr(config, 'MACRO_USDCNH', 'USDCNH'),
+            "USOIL": getattr(config, 'MACRO_OIL', 'OILMn')
         }
         self.resolved_symbols = {}
         self.missing_logged = set()
@@ -43,13 +33,13 @@ class MacroSpyNetwork:
         if key in self.resolved_symbols:
             return self.resolved_symbols[key]
         
+        configured_symbol = self.spies_config.get(key, key)
+        
         def _resolve():
-            candidates = self.spies.get(key, [key])
-            for c in candidates:
-                res = resolve_and_select_symbol(c)
-                if mt5.symbol_info(res) is not None:
-                    return res
-            return resolve_and_select_symbol(key)
+            if mt5.symbol_select(configured_symbol, True):
+                if mt5.symbol_info_tick(configured_symbol) is not None:
+                    return configured_symbol
+            return None
             
         resolved = await run_mt5_task(_resolve)
         self.resolved_symbols[key] = resolved
@@ -93,15 +83,11 @@ class MacroSpyNetwork:
         def _resolve_all():
             for key in ["DXY", "EURUSD", "US10Y", "USDJPY", "VIX", "US500", "XAGUSD", "USDCNH", "USOIL"]:
                 if key not in self.resolved_symbols:
-                    candidates = self.spies.get(key, [key])
+                    configured_symbol = self.spies_config.get(key, key)
                     resolved = None
-                    for c in candidates:
-                        res = resolve_and_select_symbol(c)
-                        if mt5.symbol_info(res) is not None:
-                            resolved = res
-                            break
-                    if resolved is None:
-                        resolved = resolve_and_select_symbol(key)
+                    if mt5.symbol_select(configured_symbol, True):
+                        if mt5.symbol_info_tick(configured_symbol) is not None:
+                            resolved = configured_symbol
                     self.resolved_symbols[key] = resolved
                     
         await run_mt5_task(_resolve_all)
@@ -114,9 +100,12 @@ class MacroSpyNetwork:
             # Fetch M1 candles for all resolved symbols up to 16 bars ago
             symbol_rates = {}
             for key, sym in self.resolved_symbols.items():
-                rates = mt5.copy_rates_from_pos(sym, mt5.TIMEFRAME_M1, 0, 16)
-                if rates is not None and len(rates) > 0:
-                    symbol_rates[key] = rates
+                if sym is not None:
+                    rates = mt5.copy_rates_from_pos(sym, mt5.TIMEFRAME_M1, 0, 16)
+                    if rates is not None and len(rates) > 0:
+                        symbol_rates[key] = rates
+                    else:
+                        symbol_rates[key] = []
                 else:
                     symbol_rates[key] = []
                     
