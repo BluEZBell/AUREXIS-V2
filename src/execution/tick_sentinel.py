@@ -34,7 +34,7 @@ class TickSentinel:
         self._pos_risk_recycled: Dict[int, bool] = {}
             
         self._running = False
-        self._closing_tickets = set()
+        self._closing_tickets = {}
         
         # Momentum Exhaustion state
         self._pos_highs: Dict[int, float] = {}
@@ -120,7 +120,7 @@ class TickSentinel:
             if dt in self._soft_targets:
                 self._soft_targets.pop(dt, None)
                 changed = True
-            self._closing_tickets.discard(dt)
+            self._closing_tickets.pop(dt, None)
             
         if changed:
             self._save_ghost_targets()
@@ -595,10 +595,15 @@ class TickSentinel:
                         )
 
     async def _request_close(self, ticket: int, reason: str, event: TickEvent, pos_dir: str, order_type: str = "PROBE") -> None:
+        import time
+        now = time.time()
         if ticket in self._closing_tickets:
-            return
+            if now - self._closing_tickets[ticket] < 5.0:
+                return
+            else:
+                logger.warning(f"Tick Sentinel: Retrying CLOSE for Ticket {ticket} after TTL expiration.")
             
-        self._closing_tickets.add(ticket)
+        self._closing_tickets[ticket] = now
         close_price = 0.0
         if event:
             close_price = event.ask if pos_dir == "SELL" else event.bid

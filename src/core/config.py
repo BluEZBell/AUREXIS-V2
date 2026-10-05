@@ -10,9 +10,14 @@ MT5_LOCK = threading.RLock()
 
 async def run_mt5_task(func, *args, **kwargs):
     import asyncio
+    import time
     def wrapper():
-        with MT5_LOCK:
+        if not MT5_LOCK.acquire(timeout=5.0):
+            raise TimeoutError("MT5_LOCK contention timeout. Potential broker hang.")
+        try:
             return func(*args, **kwargs)
+        finally:
+            MT5_LOCK.release()
     return await asyncio.to_thread(wrapper)
 
 MAGIC_NUMBER = int(os.getenv("MAGIC_NUMBER", "777999"))
