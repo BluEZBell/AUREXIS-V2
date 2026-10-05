@@ -121,9 +121,13 @@ class AlphaHarvesterStrategy:
             self.current_score = signal.conviction_score
             
             from src.core.event_bus import StrategyStateEvent
+            
+            # Determine cycle state directly from the ledger's active cycles
+            is_active = hasattr(self, 'campaign_ledger') and self.campaign_ledger and getattr(self.campaign_ledger, 'active_cycles', None)
+            
             asyncio.create_task(self.event_bus.publish(StrategyStateEvent(
                 strategy_id=self.strategy_id,
-                cycle_state=self.campaign_ledger.get_cycle_state().value if hasattr(self, 'campaign_ledger') else "IDLE",
+                cycle_state="ACTIVE" if is_active else "IDLE",
                 swarm_type="CORE",
                 current_score=self.current_score
             )))
