@@ -134,10 +134,10 @@ class StrategyStateEvent:
     strategy_id: str
     cycle_state: str
     swarm_type: str
-    scout_dir: str
-    whipsaw_locked: bool
-    whipsaw_locked_until: float
-    current_score: float
+    scout_dir: str = "NONE"
+    whipsaw_locked: bool = False
+    whipsaw_locked_until: float = 0.0
+    current_score: float = 0.0
     adx_m15: float = 0.0
     z_score: float = 0.0
     atr_m15: float = 0.0

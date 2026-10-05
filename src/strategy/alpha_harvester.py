@@ -129,6 +129,9 @@ class AlphaHarvesterStrategy:
                 strategy_id=self.strategy_id,
                 cycle_state="ACTIVE" if is_active else "IDLE",
                 swarm_type="CORE",
+                scout_dir="NONE",
+                whipsaw_locked=False,
+                whipsaw_locked_until=0.0,
                 current_score=self.current_score
             )))
 
