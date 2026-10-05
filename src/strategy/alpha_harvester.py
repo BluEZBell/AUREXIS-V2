@@ -118,6 +118,16 @@ class AlphaHarvesterStrategy:
         try:
             # Delegate all indicator fetching and evaluation to AlphaScorer
             signal = await self.alpha_scorer.evaluate_tick(symbol, bid, ask)
+            self.current_score = signal.conviction_score
+            
+            from src.core.event_bus import StrategyStateEvent
+            asyncio.create_task(self.event_bus.publish(StrategyStateEvent(
+                strategy_id=self.strategy_id,
+                cycle_state=self.campaign_ledger.get_cycle_state().value if hasattr(self, 'campaign_ledger') else "IDLE",
+                swarm_type="CORE",
+                current_score=self.current_score
+            )))
+
             
             if tick_ingest_time > 0:
                 process_latency_ms = (time.perf_counter() - tick_ingest_time) * 1000.0
