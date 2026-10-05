@@ -156,11 +156,35 @@ class MT5Bridge:
                     logger.info("MT5 Connection Watchdog: Connection restored to Broker Server.")
                     if getattr(self, 'telemetry_state', None):
                         self.telemetry_state.broker_online = True
-                elif not connected and self.is_connected:
-                    self.is_connected = False
-                    logger.critical("MT5 Connection Watchdog: BROKER CONNECTION DROPPED. Signals suppressed.")
-                    if getattr(self, 'telemetry_state', None):
-                        self.telemetry_state.broker_online = False
+                elif not connected:
+                    if self.is_connected:
+                        self.is_connected = False
+                        logger.critical("MT5 Connection Watchdog: BROKER CONNECTION DROPPED. Signals suppressed. Attempting auto-recovery...")
+                        if getattr(self, 'telemetry_state', None):
+                            self.telemetry_state.broker_online = False
+                    
+                    # Non-blocking auto-reconnect attempt
+                    def _reconnect():
+                        init_args = {}
+                        if self.terminal_path:
+                            init_args['path'] = self.terminal_path
+                        if mt5.initialize(**init_args):
+                            # Try to enforce login if credentials exist in .env
+                            env_login_str = str(getattr(config, 'MT5_LOGIN', "")).strip()
+                            if env_login_str and env_login_str not in ["123456", "12345678", "0"]:
+                                try:
+                                    login_args = {"login": int(env_login_str)}
+                                    pwd = getattr(config, 'MT5_PASSWORD', "")
+                                    srv = getattr(config, 'MT5_SERVER', "")
+                                    if pwd: login_args["password"] = pwd
+                                    if srv: login_args["server"] = srv
+                                    mt5.login(**login_args)
+                                except ValueError:
+                                    pass
+                        return True
+                    
+                    await run_mt5_task(_reconnect)
+                    
             except asyncio.CancelledError:
                 break
             except Exception as e:
