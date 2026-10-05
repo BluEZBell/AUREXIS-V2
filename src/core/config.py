@@ -16,7 +16,7 @@ async def run_mt5_task(func, *args, **kwargs):
     return await asyncio.to_thread(wrapper)
 
 MAGIC_NUMBER = int(os.getenv("MAGIC_NUMBER", "777999"))
-TRADING_SYMBOL = os.getenv("TRADING_SYMBOL", "GOLD")
+TRADING_SYMBOL = str(os.getenv("TRADING_SYMBOL", "GOLD")).strip().strip('\"').strip('\'')
 PROFILE_MODE = os.getenv("PROFILE_MODE", "UNLIMITED_APEX")
 WEB_PORT = int(os.getenv("WEB_DASHBOARD_PORT", "8000"))
 MT5_TERMINAL_PATH = os.getenv("MT5_PATH") or os.getenv("MT5_TERMINAL_PATH")
