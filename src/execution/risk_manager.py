@@ -414,7 +414,8 @@ class RiskManager:
 
             lot = round(lot, 8)
             
-            if lot < volume_min and allocated_risk_money >= 1.0:
+            # Initial min clamp before margin check
+            if raw_lot > 0 and lot < volume_min:
                 lot = volume_min
 
             action = mt5.ORDER_TYPE_BUY
@@ -436,12 +437,16 @@ class RiskManager:
                 lot = math.floor(lot / volume_step) * volume_step
             lot = round(lot, 8)
             
-            if lot < volume_min and allocated_risk_money >= 1.0:
-                # final margin check for min volume
+            # Final clamp: If we still want to trade (raw_lot > 0), ensure we hit at least volume_min
+            if raw_lot > 0 and lot < volume_min:
                 if req_margin and req_margin > 0:
                     margin_per_lot = req_margin / (lot if lot > 0 else volume_min)
                     if free_margin >= margin_per_lot * volume_min:
                         lot = volume_min
+                    else:
+                        lot = 0.0 # Insufficient margin even for the minimum lot size
+                else:
+                    lot = volume_min
 
             if lot > volume_max:
                 lot = volume_max

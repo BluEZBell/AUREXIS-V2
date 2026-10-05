@@ -711,7 +711,7 @@ class MT5Bridge:
                     "magic": int(MAGIC_NUMBER),
                     "comment": f"AUREXIS {getattr(signal, 'strategy_id', 'UNKN')}",
                     "type_time": int(mt5.ORDER_TIME_GTC),
-                    "type_filling": int(mt5.ORDER_FILLING_IOC),
+                    "type_filling": self._get_filling_mode(str(symbol)),
                 }
                 
                 return request
@@ -722,104 +722,95 @@ class MT5Bridge:
                 
             async def _execute_and_retry(req_payload: dict, signal_event: SignalEvent):
                 result = None
-                filling_modes = [mt5.ORDER_FILLING_IOC, mt5.ORDER_FILLING_FOK, mt5.ORDER_FILLING_RETURN]
                 retries_for_price = 0
                 max_price_retries = 3
                 
-                for filling_mode in filling_modes:
-                    req_payload['type_filling'] = int(filling_mode)
-                    
-                    while True:
-                        if getattr(config, 'DRY_RUN', False):
-                            import random
-                            class MockResult:
-                                def __init__(self, request_dict):
-                                    self.order = random.randint(1000000, 9999999)
-                                    self.retcode = mt5.TRADE_RETCODE_DONE
-                                    self.volume = request_dict.get("volume", 0.0)
-                                    self.price = request_dict.get("price", 0.0)
-                            logger.warning(f"DRY RUN: Bypassing order_send. Mocking success for req: {req_payload}")
-                            result = MockResult(req_payload)
-                        else:
-                            def _timed_send(payload):
-                                import time
-                                start = time.perf_counter()
-                                res = mt5.order_send(payload)
-                                end = time.perf_counter()
-                                return res, (end - start) * 1000.0
+                # type_filling is already dynamically resolved in _build_market_request
+                while True:
+                    if getattr(config, 'DRY_RUN', False):
+                        import random
+                        class MockResult:
+                            def __init__(self, request_dict):
+                                self.order = random.randint(1000000, 9999999)
+                                self.retcode = mt5.TRADE_RETCODE_DONE
+                                self.volume = request_dict.get("volume", 0.0)
+                                self.price = request_dict.get("price", 0.0)
+                        logger.warning(f"DRY RUN: Bypassing order_send. Mocking success for req: {req_payload}")
+                        result = MockResult(req_payload)
+                    else:
+                        def _timed_send(payload):
+                            import time
+                            start = time.perf_counter()
+                            res = mt5.order_send(payload)
+                            end = time.perf_counter()
+                            return res, (end - start) * 1000.0
 
-                            result, order_latency_ms = await asyncio.to_thread(_timed_send, req_payload)
+                        result, order_latency_ms = await asyncio.to_thread(_timed_send, req_payload)
+                        
+                        if getattr(self, 'telemetry_state', None):
+                            self.telemetry_state.order_latency_ms = order_latency_ms
                             
-                            if getattr(self, 'telemetry_state', None):
-                                self.telemetry_state.order_latency_ms = order_latency_ms
-                                
-                            if order_latency_ms > 50.0:
-                                warning_msg = f"LATENCY WARNING: Order execution took {order_latency_ms:.2f}ms. Potential broker-side lag."
-                                asyncio.create_task(self.event_bus.publish(ErrorEvent(source="ExecutionBridge", message=warning_msg, critical=False)))
-                            
-                            if result is None:
-                                err = await asyncio.to_thread(mt5.last_error)
-                                logger.error(f"RAW EXECUTION EXPOSURE: mt5.order_send returned None. mt5.last_error() = {err}")
-                            else:
-                                try:
-                                    raw_dict = result._asdict()
-                                except AttributeError:
-                                    raw_dict = str(result)
-                                logger.info(f"RAW EXECUTION EXPOSURE: Raw MT5 response dict: {raw_dict}")
-                                logger.info(f"Exact MT5 Response: {result}")
-                            
-                        if result and result.retcode == mt5.TRADE_RETCODE_DONE:
-                            if not getattr(config, 'DRY_RUN', False) and result:
-                                req_price = float(req_payload.get('price', 0.0))
-                                filled_price = float(getattr(result, 'price', req_price))
-                                sym = req_payload.get('symbol', '')
-                                sym_info = await asyncio.to_thread(mt5.symbol_info, sym)
-                                point = getattr(sym_info, 'point', 0.001)
-                                slippage_pts = abs(req_price - filled_price) / point if point > 0 else 0.0
-                                lat = locals().get('order_latency_ms', 0.0)
-                                asyncio.create_task(self.profiler.log_execution(
-                                    ticket=getattr(result, 'order', 0),
-                                    symbol=sym,
-                                    action=req_payload.get('type', 0),
-                                    requested_price=req_price,
-                                    filled_price=filled_price,
-                                    slippage_pts=slippage_pts,
-                                    latency_ms=lat
-                                ))
-                            break
-                            
-                        if result and result.retcode in [mt5.TRADE_RETCODE_CONNECTION, mt5.TRADE_RETCODE_REQUOTE, mt5.TRADE_RETCODE_PRICE_CHANGED, mt5.TRADE_RETCODE_PRICE_OFF, 10004, 10008, 10009, 10020, 10015, 10016]:
-                            if retries_for_price < max_price_retries:
-                                retries_for_price += 1
-                                logger.warning(f"Order retry {retries_for_price}/{max_price_retries} due to requote/price change (retcode: {result.retcode})")
-                                # Operation: Terminal Edge - Aggressive Execution Retry Matrix micro-delay
-                                await asyncio.sleep(0.02)
-                                fresh_tick = await asyncio.to_thread(mt5.symbol_info_tick, req_payload['symbol'])
-                                if fresh_tick:
-                                    req_payload['price'] = fresh_tick.ask if req_payload['type'] == mt5.ORDER_TYPE_BUY else fresh_tick.bid
-                                    symbol_info = await asyncio.to_thread(mt5.symbol_info, req_payload['symbol'])
-                                    if symbol_info:
-                                        req_payload['price'] = round(float(req_payload['price']), symbol_info.digits)
-                                        # Recalculate Hard SL for new exact price
-                                        atr_points = getattr(signal_event, "atr", 50.0)
-                                        if atr_points <= 0: atr_points = 50.0
-                                        hard_sl_dist = atr_points * 2.0 * symbol_info.point
-                                        req_payload['sl'] = round(req_payload['price'] - hard_sl_dist, symbol_info.digits) if req_payload['type'] == mt5.ORDER_TYPE_BUY else round(req_payload['price'] + hard_sl_dist, symbol_info.digits)
-                                continue
-                            else:
-                                logger.error(f"TERMINAL REJECTION: Failed to execute after {max_price_retries} attempts.")
-                        break
-                    
+                        if order_latency_ms > 50.0:
+                            warning_msg = f"LATENCY WARNING: Order execution took {order_latency_ms:.2f}ms. Potential broker-side lag."
+                            asyncio.create_task(self.event_bus.publish(ErrorEvent(source="ExecutionBridge", message=warning_msg, critical=False)))
+                        
+                        if result is None:
+                            err = await asyncio.to_thread(mt5.last_error)
+                            logger.error(f"RAW EXECUTION EXPOSURE: mt5.order_send returned None. mt5.last_error() = {err}")
+                        else:
+                            try:
+                                raw_dict = result._asdict()
+                            except AttributeError:
+                                raw_dict = str(result)
+                            logger.info(f"RAW EXECUTION EXPOSURE: Raw MT5 response dict: {raw_dict}")
+                            logger.info(f"Exact MT5 Response: {result}")
+                        
                     if result and result.retcode == mt5.TRADE_RETCODE_DONE:
+                        if not getattr(config, 'DRY_RUN', False) and result:
+                            req_price = float(req_payload.get('price', 0.0))
+                            filled_price = float(getattr(result, 'price', req_price))
+                            sym = req_payload.get('symbol', '')
+                            sym_info = await asyncio.to_thread(mt5.symbol_info, sym)
+                            point = getattr(sym_info, 'point', 0.001) if sym_info else 0.001
+                            slippage_pts = abs(req_price - filled_price) / point if point > 0 else 0.0
+                            lat = locals().get('order_latency_ms', 0.0)
+                            asyncio.create_task(self.profiler.log_execution(
+                                ticket=getattr(result, 'order', 0),
+                                symbol=sym,
+                                action=req_payload.get('type', 0),
+                                requested_price=req_price,
+                                filled_price=filled_price,
+                                slippage_pts=slippage_pts,
+                                latency_ms=lat
+                            ))
                         break
                         
+                    if result and result.retcode in [mt5.TRADE_RETCODE_CONNECTION, mt5.TRADE_RETCODE_REQUOTE, mt5.TRADE_RETCODE_PRICE_CHANGED, mt5.TRADE_RETCODE_PRICE_OFF, 10004, 10008, 10009, 10020, 10015, 10016]:
+                        if retries_for_price < max_price_retries:
+                            retries_for_price += 1
+                            logger.warning(f"Order retry {retries_for_price}/{max_price_retries} due to requote/price change (retcode: {result.retcode})")
+                            # Operation: Terminal Edge - Aggressive Execution Retry Matrix micro-delay
+                            await asyncio.sleep(0.02)
+                            fresh_tick = await asyncio.to_thread(mt5.symbol_info_tick, req_payload['symbol'])
+                            if fresh_tick:
+                                req_payload['price'] = fresh_tick.ask if req_payload['type'] == mt5.ORDER_TYPE_BUY else fresh_tick.bid
+                                symbol_info = await asyncio.to_thread(mt5.symbol_info, req_payload['symbol'])
+                                if symbol_info:
+                                    req_payload['price'] = round(float(req_payload['price']), symbol_info.digits)
+                                    # Recalculate Hard SL for new exact price
+                                    atr_points = getattr(signal_event, "atr", 50.0)
+                                    if atr_points <= 0: atr_points = 50.0
+                                    hard_sl_dist = atr_points * 2.0 * symbol_info.point
+                                    req_payload['sl'] = round(req_payload['price'] - hard_sl_dist, symbol_info.digits) if req_payload['type'] == mt5.ORDER_TYPE_BUY else round(req_payload['price'] + hard_sl_dist, symbol_info.digits)
+                            continue
+                        else:
+                            logger.error(f"TERMINAL REJECTION: Failed to execute after {max_price_retries} attempts.")
+                    
                     if result and result.retcode == 10027:
                         logger.critical("AutoTrading Disabled (10027). Please enable it in MT5.")
-                        break
-
+                        
                     if result and result.retcode in [mt5.TRADE_RETCODE_INVALID_FILL, mt5.TRADE_RETCODE_INVALID_VOLUME]:
-                        logger.warning(f"Filling mode {filling_mode} rejected. Retrying with next fallback...")
-                        continue
+                        logger.error(f"Execution rejected: Invalid Fill/Volume (retcode: {result.retcode}). Symbol likely doesn't support the requested volume or mode.")
                         
                     break
                 
