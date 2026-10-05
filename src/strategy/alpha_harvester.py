@@ -235,7 +235,7 @@ class AlphaHarvesterStrategy:
         while self._running:
             try:
                 tick_ingest_start = time.perf_counter()
-                tick = mt5.symbol_info_tick(config.TRADING_SYMBOL)
+                tick = await run_mt5_task(mt5.symbol_info_tick, config.TRADING_SYMBOL)
                 if tick:
                     # Operation: Terminal Edge - Data Integrity Sanity Check (Bad Tick Filter)
                     if tick.bid >= tick.ask or tick.bid <= 0 or tick.ask <= 0:
@@ -288,7 +288,8 @@ class AlphaHarvesterStrategy:
                         time=tick.time,
                         bid=tick.bid,
                         ask=tick.ask,
-                        volume=float(getattr(tick, 'volume_real', tick.volume))
+                        volume=float(getattr(tick, 'volume_real', getattr(tick, 'volume', 1.0))),
+                        flags=getattr(tick, 'flags', 0)
                     )
                     
                     # Concurrently broadcast tick data to both TickSentinel and AlphaScorer Pipeline

@@ -53,27 +53,51 @@ class OrderFlowTracker:
                 event = await self._tick_queue.get()
                 
                 tick_delta: float = 0.0
+                
                 if self._last_ask is not None and self._last_bid is not None:
-                    # Aggressive Buying (price ticks up)
-                    if event.ask > self._last_ask or event.bid > self._last_bid:
-                        tick_delta = event.volume
-                    # Aggressive Selling (price ticks down)
-                    elif event.ask < self._last_ask or event.bid < self._last_bid:
-                        tick_delta = -event.volume
+                    # Get tick volume or default to 1.0 for standard ticks
+                    vol = event.volume if event.volume > 0 else 1.0
+                    
+                    is_buy_flag = False
+                    is_sell_flag = False
+                    
+                    if hasattr(event, 'flags') and event.flags > 0:
+                        # MT5 TICK_FLAG_BUY = 32, TICK_FLAG_SELL = 64
+                        is_buy_flag = (event.flags & 32) == 32
+                        is_sell_flag = (event.flags & 64) == 64
+                        
+                    if is_buy_flag:
+                        tick_delta = vol
+                    elif is_sell_flag:
+                        tick_delta = -vol
+                    else:
+                        # Fallback to Price Action Micro-Momentum
+                        mid_price = (event.ask + event.bid) / 2.0
+                        last_mid = (self._last_ask + self._last_bid) / 2.0
+                        price_delta = mid_price - last_mid
+                        
+                        if price_delta > 0.000001:
+                            tick_delta = vol
+                        elif price_delta < -0.000001:
+                            tick_delta = -vol
                         
                 self._last_ask = event.ask
                 self._last_bid = event.bid
                 
+                # Rolling Accumulation (Non-blocking moving sum)
                 self._delta_window.append(tick_delta)
                 
-                # Vectorized operations
-                deltas = np.array(self._delta_window, dtype=float)
-                self.state.cumulative_delta = float(np.sum(deltas))
-                
-                momentum_period = min(10, len(deltas))
-                if momentum_period > 0:
-                    self.state.delta_momentum = float(np.sum(deltas[-momentum_period:]))
+                if len(self._delta_window) > 0:
+                    deltas = np.array(self._delta_window, dtype=float)
+                    self.state.cumulative_delta = float(np.sum(deltas))
+                    
+                    momentum_period = min(20, len(deltas))
+                    if momentum_period > 0:
+                        self.state.delta_momentum = float(np.sum(deltas[-momentum_period:]))
+                    else:
+                        self.state.delta_momentum = 0.0
                 else:
+                    self.state.cumulative_delta = 0.0
                     self.state.delta_momentum = 0.0
                     
                 self._tick_queue.task_done()

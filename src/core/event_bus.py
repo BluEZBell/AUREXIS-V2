@@ -12,6 +12,7 @@ class TickEvent:
     ask: float
     time: int
     volume: float = 1.0
+    flags: int = 0
 
 @dataclass
 class StructuralTrendEvent:
