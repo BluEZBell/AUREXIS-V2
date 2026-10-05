@@ -208,7 +208,8 @@ class AlphaHarvesterStrategy:
         self._running = True
         logger.info("AlphaHarvester Central Orchestrator Router started.")
         
-        asyncio.create_task(self.news_filter.start())
+        if self.news_filter:
+            asyncio.create_task(self.news_filter.start())
         await self.tick_sentinel.start()
         
         # PRE-FLIGHT DIAGNOSTIC

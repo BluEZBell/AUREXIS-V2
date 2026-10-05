@@ -1,4 +1,4 @@
-﻿import asyncio
+import asyncio
 import signal
 import sys
 import os
@@ -140,7 +140,7 @@ async def main():
                 logger.error(f"Drift monitor error: {e}")
 
     # Core Engines
-    bridge = MT5Bridge(event_bus, risk_manager=None, telemetry=telemetry)
+    bridge = MT5Bridge(event_bus, risk_manager=None, telemetry_logger=telemetry)
     await bridge.initialize()
     
     actual_balance = await bridge.get_live_balance()
@@ -178,7 +178,7 @@ async def main():
         order_flow_tracker=order_flow
     )
     
-    sentinel = TickSentinel(event_bus, risk_manager, campaign_ledger, telemetry=telemetry, alpha_scorer=scorer)
+    sentinel = TickSentinel(event_bus, risk_manager, campaign_ledger, telemetry_logger=telemetry, alpha_scorer=scorer)
     
     from src.core.adaptive_tuner import AdaptiveTuner
     tuner = AdaptiveTuner(alpha_scorer=scorer, telemetry_state=None)
